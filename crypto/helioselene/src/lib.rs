@@ -2,6 +2,8 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
 
+pub use group;
+
 #[macro_use]
 mod backend;
 
