@@ -516,7 +516,7 @@ fn verify_fn(
   params: &FcmpParams<MoneroCurves>,
   root: TreeRoot<Selene, Helios>,
   layer_lens: &[usize],
-  input: Input<<Selene as Ciphersuite>::F>,
+  inputs: &[Input<<Selene as Ciphersuite>::F>],
 ) {
   let mut times = vec![];
   for _ in 0 .. iters {
@@ -526,7 +526,7 @@ fn verify_fn(
     let mut verifier_2 = params.curve_2_generators.batch_verifier();
 
     for _ in 0 .. batch {
-      proof.verify(&mut OsRng, &mut verifier_1, &mut verifier_2, params, root, layer_lens, input);
+      proof.verify(&mut OsRng, &mut verifier_1, &mut verifier_2, params, root, layer_lens, inputs);
     }
 
     assert!(params.curve_1_generators.verify(verifier_1));
@@ -561,7 +561,7 @@ fn test_single_input() {
       blind_branches(&params, branches, vec![output_blinds.clone()]),
     );
 
-    verify_fn(1, 1, proof.clone(), &params, root, &layer_lens, input);
+    verify_fn(1, 1, proof.clone(), &params, root, &layer_lens, &[input]);
   }
 }
 
@@ -569,24 +569,29 @@ fn test_single_input() {
 fn test_multiple_inputs() {
   let (G, T, U, V, params) = random_params(8);
 
-  for paths in 2 ..= 8 {
-    for layers in 1 ..= TARGET_LAYERS {
+  for paths in 2 ..= 4 {
+    // This is less than target layers yet still tests a C1 root and a C2 root
+    for layers in 1 ..= 4 {
       println!("Testing a proof with {paths} inputs and {layers} layers");
 
-      let (paths, _layer_lens, root) = random_paths(&params, layers, paths);
+      let (paths, layer_lens, root) = random_paths(&params, layers, paths);
 
       let mut output_blinds = vec![];
       for _ in 0 .. paths.len() {
         output_blinds.push(random_output_blinds(G, T, U, V));
       }
-      //let input = output_blinds.blind(&output).unwrap();
+
+      let mut inputs = vec![];
+      for (path, output_blinds) in paths.iter().zip(&output_blinds) {
+        inputs.push(output_blinds.blind(&path.output).unwrap());
+      }
 
       let branches = Branches::new(paths).unwrap();
 
-      let _proof =
+      let proof =
         Fcmp::prove(&mut OsRng, &params, root, blind_branches(&params, branches, output_blinds));
 
-      // verify_fn(1, 1, proof.clone(), &params, root, &layer_lens, input);
+      verify_fn(1, 1, proof, &params, root, &layer_lens, &inputs);
     }
   }
 
@@ -651,7 +656,7 @@ fn verify_benchmark() {
     blind_branches(&params, branches.clone(), vec![output_blinds]),
   );
 
-  verify_fn(100, 1, proof.clone(), &params, root, &layer_lens, input);
-  verify_fn(100, 10, proof.clone(), &params, root, &layer_lens, input);
-  verify_fn(100, 100, proof.clone(), &params, root, &layer_lens, input);
+  verify_fn(100, 1, proof.clone(), &params, root, &layer_lens, &[input]);
+  verify_fn(100, 10, proof.clone(), &params, root, &layer_lens, &[input]);
+  verify_fn(100, 100, proof.clone(), &params, root, &layer_lens, &[input]);
 }
