@@ -68,7 +68,11 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
   where
     C::G: DivisorCurve<Scalar = F>,
   {
+    // Make sure we're at the start of a commitment as this needs its own dedicated commitment
+    assert_eq!(self.current_j_offset, 0);
+
     let empty = branch.as_ref().map(|_| vec![F::ZERO; COMMITMENT_WORD_LEN]);
+
     let branch = branch.map(|mut branch| {
       assert_eq!(branch_len, branch.len());
       assert!(branch.len() <= COMMITMENT_WORD_LEN);
@@ -81,9 +85,10 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     });
 
     let mut branch = self.append(branch);
-    // Append an empty dummy so this hash doesn't have more variables added
-    if self.commitment_len == COMMITMENT_WORD_LEN {
-      self.append(empty);
+
+    // Append empty dummies so this hash doesn't have more variables added
+    for _ in 1 .. ((2 * self.commitment_len) / COMMITMENT_WORD_LEN) {
+      self.append(empty.clone());
     }
     branch.truncate(branch_len);
     branch

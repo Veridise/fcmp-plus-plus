@@ -217,7 +217,7 @@ fn random_paths(
   // 2nd layer has a C2 root (so the top layer is C1)
   // 3rd layer has a C1 root (so the top layer is C2)
   let root = if layers == 1 {
-    assert_eq!(*layer_lens.last().unwrap(), res[0].leaves.len());
+    assert_eq!(*layer_lens.last().unwrap(), 3 * res[0].leaves.len());
 
     let mut outputs = vec![];
     for path in &res {
@@ -358,6 +358,89 @@ fn random_paths(
     )
   };
 
+  // Verify each of these paths are valid
+  for path in &res {
+    assert!(path.leaves.iter().any(|output| output == &path.output));
+
+    let mut leaves_layer = vec![];
+    for output in &path.leaves {
+      leaves_layer.push(<Ed25519 as Ciphersuite>::G::to_xy(output.O).unwrap().0);
+      leaves_layer.push(<Ed25519 as Ciphersuite>::G::to_xy(output.I).unwrap().0);
+      leaves_layer.push(<Ed25519 as Ciphersuite>::G::to_xy(output.C).unwrap().0);
+    }
+
+    let mut c1_hash = Some(
+      <Selene as Ciphersuite>::G::to_xy(
+        hash_grow(
+          &params.curve_1_generators,
+          params.curve_1_hash_init,
+          0,
+          <Selene as Ciphersuite>::F::ZERO,
+          &leaves_layer,
+        )
+        .unwrap(),
+      )
+      .unwrap()
+      .0,
+    );
+    let mut c2_hash = None;
+
+    let mut c1s = path.curve_1_layers.iter();
+    let mut c2s = path.curve_2_layers.iter();
+    loop {
+      if let Some(layer) = c2s.next() {
+        assert!(layer.iter().any(|leaf| leaf == &c1_hash.unwrap()));
+        c1_hash = None;
+        c2_hash = Some(
+          <Helios as Ciphersuite>::G::to_xy(
+            hash_grow(
+              &params.curve_2_generators,
+              params.curve_2_hash_init,
+              0,
+              <Helios as Ciphersuite>::F::ZERO,
+              layer,
+            )
+            .unwrap(),
+          )
+          .unwrap()
+          .0,
+        );
+      } else {
+        assert!(c1s.next().is_none());
+      }
+
+      if let Some(layer) = c1s.next() {
+        assert!(layer.iter().any(|leaf| leaf == &c2_hash.unwrap()));
+        c2_hash = None;
+        c1_hash = Some(
+          <Selene as Ciphersuite>::G::to_xy(
+            hash_grow(
+              &params.curve_1_generators,
+              params.curve_1_hash_init,
+              0,
+              <Selene as Ciphersuite>::F::ZERO,
+              layer,
+            )
+            .unwrap(),
+          )
+          .unwrap()
+          .0,
+        );
+      } else {
+        assert!(c2s.next().is_none());
+        break;
+      }
+    }
+    match root {
+      TreeRoot::C1(root) => {
+        assert_eq!(<Selene as Ciphersuite>::G::to_xy(root).unwrap().0, c1_hash.unwrap())
+      }
+      TreeRoot::C2(root) => {
+        assert_eq!(<Helios as Ciphersuite>::G::to_xy(root).unwrap().0, c2_hash.unwrap())
+      }
+    }
+  }
+
   (res, layer_lens, root)
 }
 
@@ -486,11 +569,11 @@ fn test_single_input() {
 fn test_multiple_inputs() {
   let (G, T, U, V, params) = random_params(8);
 
-  for layers in 1 ..= TARGET_LAYERS {
-    for paths in 2 ..= 8 {
+  for paths in 2 ..= 8 {
+    for layers in 1 ..= TARGET_LAYERS {
       println!("Testing a proof with {paths} inputs and {layers} layers");
 
-      let (paths, layer_lens, root) = random_paths(&params, TARGET_LAYERS, paths);
+      let (paths, _layer_lens, root) = random_paths(&params, layers, paths);
 
       let mut output_blinds = vec![];
       for _ in 0 .. paths.len() {
@@ -500,7 +583,7 @@ fn test_multiple_inputs() {
 
       let branches = Branches::new(paths).unwrap();
 
-      let proof =
+      let _proof =
         Fcmp::prove(&mut OsRng, &params, root, blind_branches(&params, branches, output_blinds));
 
       // verify_fn(1, 1, proof.clone(), &params, root, &layer_lens, input);

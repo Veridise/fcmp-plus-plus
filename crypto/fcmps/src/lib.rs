@@ -152,6 +152,7 @@ where
   pub fn prove<R: RngCore + CryptoRng>(
     rng: &mut R,
     params: &FcmpParams<C>,
+    // TODO: Why take this in? Why not re-calc it from the branches?
     tree: TreeRoot<C::C1, C::C2>,
     branches: BranchesWithBlinds<C>,
   ) -> Self
@@ -161,14 +162,30 @@ where
     <C::C1 as Ciphersuite>::F: PrimeField<Repr = [u8; 32]>,
     <C::C2 as Ciphersuite>::F: PrimeField<Repr = [u8; 32]>,
   {
-    // TODO: Pad to nearest power of 2
+    let c1_padded_pow_2 = {
+      let base = branches.per_input.len() * 256;
+      let mut res = 1;
+      while res < base {
+        res <<= 1;
+      }
+      res
+    };
+    let c2_padded_pow_2 = {
+      let base = branches.per_input.len() * 128;
+      let mut res = 1;
+      while res < base {
+        res <<= 1;
+      }
+      res
+    };
+
     let mut c1_tape = VectorCommitmentTape {
-      commitment_len: branches.per_input.len() * 256,
+      commitment_len: c1_padded_pow_2,
       current_j_offset: 0,
       commitments: vec![],
     };
     let mut c2_tape = VectorCommitmentTape {
-      commitment_len: branches.per_input.len() * 128,
+      commitment_len: c2_padded_pow_2,
       current_j_offset: 0,
       commitments: vec![],
     };
@@ -277,9 +294,15 @@ where
     let mut transcripted_blinds_c2 = transcripted_blinds_c2.into_iter();
 
     // Perform the layers
+    let mut c1_commitments =
+      commitments_1.C().iter().cloned().zip(pvc_blinds_1.iter().cloned()).collect::<Vec<_>>();
+    let mut c2_commitments =
+      commitments_2.C().iter().cloned().zip(pvc_blinds_2.iter().cloned()).collect::<Vec<_>>();
     for (i, (input, transcripted_input)) in
       branches.per_input.iter().zip(transcripted_inputs).enumerate()
     {
+      let mut c1_branches = transcripted_branches.per_input[i].c1.iter();
+
       c1_circuit.first_layer(
         &mut transcript,
         &CurveSpec {
@@ -309,7 +332,7 @@ where
         //
         (match branches.root {
           RootBranch::Leaves(_) => &transcripted_branches.root,
-          _ => &transcripted_branches.per_input[i].c1[0],
+          _ => c1_branches.next().unwrap(),
         })
         .chunks(3)
         .map(|chunk| {
@@ -319,20 +342,18 @@ where
         .collect(),
       );
 
-      let commitment_iter = commitments_2.C().iter().cloned().zip(pvc_blinds_2.iter().cloned());
-      // We want to skip c1[0] as we hashed into it in the first layer
-      // We use `skip`, not `[1 ..]`, as there may not be a branch to skip
-      let mut c1_branches =
-        transcripted_branches.per_input[i].c1.iter().skip(1).cloned().collect::<Vec<_>>();
+      let mut c1_branches = c1_branches.cloned().collect::<Vec<_>>();
       if matches!(&branches.root, RootBranch::C1(_)) {
         c1_branches.push(transcripted_branches.root.clone());
       }
-      let branch_iter = c1_branches.into_iter();
+      // We unblind as many commitments from C2 as we have remaining C1 branches, since these
+      // always are preceded by a C2 branch
+      let these_c2_commitments = c2_commitments.drain(.. c1_branches.len()).collect::<Vec<_>>();
       // The following two to_xy calls have negligible probability of failing as they'd require
       // randomly selected blinds be the discrete logarithm of commitments, or one of our own
       // commitments be identity
-      for ((mut prior_commitment, prior_blind), branch) in
-        commitment_iter.into_iter().zip(branch_iter)
+      for (branch, (mut prior_commitment, prior_blind)) in
+        c1_branches.into_iter().zip(these_c2_commitments)
       {
         if c1_dlog_challenge.is_none() {
           c1_dlog_challenge = Some(c1_circuit.additional_layer_discrete_log_challenge(
@@ -366,14 +387,13 @@ where
         );
       }
 
-      let commitment_iter = commitments_1.C().iter().cloned().zip(pvc_blinds_1.iter().cloned());
       let mut c2_branches = transcripted_branches.per_input[i].c2.clone();
       if matches!(&branches.root, RootBranch::C2(_)) {
         c2_branches.push(transcripted_branches.root.clone());
       }
-      let branch_iter = c2_branches.into_iter();
-      for ((mut prior_commitment, prior_blind), branch) in
-        commitment_iter.into_iter().zip(branch_iter)
+      let these_c1_commitments = c1_commitments.drain(.. c2_branches.len()).collect::<Vec<_>>();
+      for (branch, (mut prior_commitment, prior_blind)) in
+        c2_branches.into_iter().zip(these_c1_commitments)
       {
         if c2_dlog_challenge.is_none() {
           c2_dlog_challenge = Some(c2_circuit.additional_layer_discrete_log_challenge(
@@ -420,18 +440,12 @@ where
 
     // TODO: unwrap -> Result
     let (c1_statement, c1_witness) = c1_circuit
-      .statement(
-        params.curve_1_generators.reduce(branches.per_input.len() * 256).unwrap(),
-        commitments_1,
-      )
+      .statement(params.curve_1_generators.reduce(c1_padded_pow_2).unwrap(), commitments_1)
       .unwrap();
     c1_statement.clone().prove(rng, &mut transcript, c1_witness.unwrap()).unwrap();
 
     let (c2_statement, c2_witness) = c2_circuit
-      .statement(
-        params.curve_2_generators.reduce(branches.per_input.len() * 128).unwrap(),
-        commitments_2,
-      )
+      .statement(params.curve_2_generators.reduce(c2_padded_pow_2).unwrap(), commitments_2)
       .unwrap();
     c2_statement.prove(rng, &mut transcript, c2_witness.unwrap()).unwrap();
 
