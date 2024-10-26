@@ -239,23 +239,6 @@ where
   pub(crate) c2: Vec<PointWithDlog<C::C1Parameters>>,
 }
 
-#[derive(Clone)]
-pub(crate) struct TranscriptedInput<C: FcmpCurves>
-where
-  <C::OC as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
-  <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
-  <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
-{
-  pub(crate) O: (Variable, Variable),
-  pub(crate) I: (Variable, Variable),
-  pub(crate) C: (Variable, Variable),
-  pub(crate) o_blind_claim: PointWithDlog<C::OcParameters>,
-  pub(crate) i_blind_u_claim: PointWithDlog<C::OcParameters>,
-  pub(crate) i_blind_v_claim: PointWithDlog<C::OcParameters>,
-  pub(crate) i_blind_blind_claim: PointWithDlog<C::OcParameters>,
-  pub(crate) c_blind_claim: PointWithDlog<C::OcParameters>,
-}
-
 impl<C: FcmpCurves> BranchesWithBlinds<C>
 where
   <C::OC as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,

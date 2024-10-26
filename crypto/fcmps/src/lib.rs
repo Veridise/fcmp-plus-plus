@@ -93,6 +93,23 @@ pub enum TreeRoot<C1: Ciphersuite, C2: Ciphersuite> {
   C2(C2::G),
 }
 
+#[derive(Clone)]
+pub(crate) struct TranscriptedInput<C: FcmpCurves>
+where
+  <C::OC as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
+  <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
+  <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
+{
+  pub(crate) O: (Variable, Variable),
+  pub(crate) I: (Variable, Variable),
+  pub(crate) C: (Variable, Variable),
+  pub(crate) o_blind_claim: PointWithDlog<C::OcParameters>,
+  pub(crate) i_blind_u_claim: PointWithDlog<C::OcParameters>,
+  pub(crate) i_blind_v_claim: PointWithDlog<C::OcParameters>,
+  pub(crate) i_blind_blind_claim: PointWithDlog<C::OcParameters>,
+  pub(crate) c_blind_claim: PointWithDlog<C::OcParameters>,
+}
+
 /// The full-chain membership proof.
 #[derive(Clone, Debug, Zeroize)]
 pub struct Fcmp<C: FcmpCurves> {
@@ -461,73 +478,131 @@ where
     params: &FcmpParams<C>,
     tree: TreeRoot<C::C1, C::C2>,
     layer_lens: &[usize],
-    input: Input<<C::C1 as Ciphersuite>::F>,
+    inputs: &[Input<<C::C1 as Ciphersuite>::F>],
   ) {
-    let mut c1_tape =
-      VectorCommitmentTape { commitment_len: 256, current_j_offset: 0, commitments: vec![] };
+    assert!(!layer_lens.is_empty());
+
+    let c1_padded_pow_2 = {
+      let base = inputs.len() * 256;
+      let mut res = 1;
+      while res < base {
+        res <<= 1;
+      }
+      res
+    };
+    let c2_padded_pow_2 = {
+      let base = inputs.len() * 128;
+      let mut res = 1;
+      while res < base {
+        res <<= 1;
+      }
+      res
+    };
+
+    let mut c1_tape = VectorCommitmentTape {
+      commitment_len: c1_padded_pow_2,
+      current_j_offset: 0,
+      commitments: vec![],
+    };
     let mut c1_branches = Vec::with_capacity((layer_lens.len() / 2) + (layer_lens.len() % 2));
-    let mut c2_tape =
-      VectorCommitmentTape { commitment_len: 128, current_j_offset: 0, commitments: vec![] };
+    let mut c2_tape = VectorCommitmentTape {
+      commitment_len: c2_padded_pow_2,
+      current_j_offset: 0,
+      commitments: vec![],
+    };
     let mut c2_branches = Vec::with_capacity(layer_lens.len() / 2);
 
-    // Append the leaves and the branches to the tape
-    for (i, layer_len) in layer_lens.iter().enumerate() {
-      if (i % 2) == 0 {
-        let branch = c1_tape.append_branch::<C::C1>(*layer_len, None);
-        c1_branches.push(branch);
-      } else {
-        let branch = c2_tape.append_branch::<C::C2>(*layer_len, None);
-        c2_branches.push(branch);
+    // Append the leaves and the non-root branches to the tape
+    for _ in inputs {
+      for (i, layer_len) in layer_lens[.. (layer_lens.len() - 1)].iter().enumerate() {
+        if (i % 2) == 0 {
+          c1_branches.push(c1_tape.append_branch::<C::C1>(*layer_len, None));
+        } else {
+          c2_branches.push(c2_tape.append_branch::<C::C2>(*layer_len, None));
+        }
       }
     }
 
-    // Accumulate the (partial) opening for the input tuple
+    // Append the root branch to the tape
+    let root = if (layer_lens.len() % 2) == 1 {
+      c1_tape.append_branch::<C::C1>(*layer_lens.last().unwrap(), None)
+    } else {
+      c2_tape.append_branch::<C::C2>(*layer_lens.last().unwrap(), None)
+    };
+
+    // Accumulate the (partial) opening for the input tuples
     let append_claimed_point_1 = |c1_tape: &mut VectorCommitmentTape<<C::C1 as Ciphersuite>::F>| {
       c1_tape.append_claimed_point::<C::OcParameters>(None, None, None, None)
     };
 
-    // Since this is presumed over Ed25519, which has a 253-bit discrete logarithm, we have two
-    // items avilable in padding. We use this padding for all the other points we must commit to
-    // For o_blind, we use the padding for O
-    let (o_blind_claim, O) = append_claimed_point_1(&mut c1_tape);
-    // For i_blind_u, we use the padding for I
-    let (i_blind_u_claim, I) = append_claimed_point_1(&mut c1_tape);
+    let mut input_openings = Vec::with_capacity(inputs.len());
+    for _ in inputs {
+      // Since this is presumed over Ed25519, which has a 253-bit discrete logarithm, we have two
+      // items avilable in padding. We use this padding for all the other points we must commit to
+      // For o_blind, we use the padding for O
+      let (o_blind_claim, O) = append_claimed_point_1(&mut c1_tape);
+      // For i_blind_u, we use the padding for I
+      let (i_blind_u_claim, I) = append_claimed_point_1(&mut c1_tape);
 
-    // Commit to the divisor for `i_blind V`, which doesn't commit to the point `i_blind V`
-    // (and that still has to be done)
-    let (i_blind_v_divisor, _extra) = c1_tape.append_divisor(None, None);
+      // Commit to the divisor for `i_blind V`, which doesn't commit to the point `i_blind V`
+      // (and that still has to be done)
+      let (i_blind_v_divisor, _extra) = c1_tape.append_divisor(None, None);
 
-    // For i_blind_blind, we use the padding for (i_blind V)
-    let (i_blind_blind_claim, i_blind_V) = append_claimed_point_1(&mut c1_tape);
+      // For i_blind_blind, we use the padding for (i_blind V)
+      let (i_blind_blind_claim, i_blind_V) = append_claimed_point_1(&mut c1_tape);
 
-    let i_blind_v_claim = PointWithDlog {
-      // This has the same discrete log, i_blind, as i_blind_u
-      dlog: i_blind_u_claim.dlog.clone(),
-      divisor: i_blind_v_divisor,
-      point: (i_blind_V[0], i_blind_V[1]),
-    };
+      let i_blind_v_claim = PointWithDlog {
+        // This has the same discrete log, i_blind, as i_blind_u
+        dlog: i_blind_u_claim.dlog.clone(),
+        divisor: i_blind_v_divisor,
+        point: (i_blind_V[0], i_blind_V[1]),
+      };
 
-    // For c_blind, we use the padding for C
-    let (c_blind_claim, C) = append_claimed_point_1(&mut c1_tape);
+      // For c_blind, we use the padding for C
+      let (c_blind_claim, C) = append_claimed_point_1(&mut c1_tape);
+
+      input_openings.push(TranscriptedInput {
+        O: (O[0], O[1]),
+        I: (I[0], I[1]),
+        C: (C[0], C[1]),
+        o_blind_claim,
+        i_blind_u_claim,
+        i_blind_v_claim,
+        i_blind_blind_claim,
+        c_blind_claim,
+      });
+    }
 
     // We now have committed to O, I, C, and all interpolated points
 
     // The first circuit's tape opens the blinds from the second curve
     let mut commitment_blind_claims_1 = vec![];
-    for _ in 0 .. (c1_branches.len() - 1) {
+    for _ in 0 .. (if c1_branches.is_empty() {
+      // There's only the leaves handled by C1, which don't have branch unblindings
+      0
+    } else {
+      // We unblind a C2 branch for every branch except the ones representing the leaves
+      // We also unblind a C2 branch in the root branch, if the root branch is C1
+      (c1_branches.len() - inputs.len()) +
+        (inputs.len() * usize::from(u8::from(matches!(tree, TreeRoot::C1(_)))))
+    }) {
       commitment_blind_claims_1
         .push(c1_tape.append_claimed_point::<C::C2Parameters>(None, None, None, None).0);
     }
+    let commitment_blind_claims_1 = commitment_blind_claims_1.into_iter();
 
     // The second circuit's tape opens the blinds from the first curve
     let mut commitment_blind_claims_2 = vec![];
-    for _ in 0 .. c2_branches.len() {
+    for _ in 0 .. (c2_branches.len() +
+      (inputs.len() * usize::from(u8::from(matches!(tree, TreeRoot::C2(_))))))
+    {
       commitment_blind_claims_2
         .push(c2_tape.append_claimed_point::<C::C1Parameters>(None, None, None, None).0);
     }
+    let commitment_blind_claims_2 = commitment_blind_claims_2.into_iter();
 
     let mut transcript = VerifierTranscript::new(
-      Self::transcript(tree, &[input], &self.root_blind_pok[.. 32]),
+      Self::transcript(tree, inputs, &self.root_blind_pok[.. 32]),
       &self.proof,
     );
     // TODO: Return an error here
@@ -537,12 +612,12 @@ where
     // Verify the root blind PoK
     {
       let claimed_root = if (layer_lens.len() % 2) == 1 {
-        TreeRoot::<C::C1, C::C2>::C1(match c1_branches.last().unwrap()[0] {
+        TreeRoot::<C::C1, C::C2>::C1(match root[0] {
           Variable::CG { commitment: i, index: _ } => params.curve_1_hash_init + proof_1_vcs.C()[i],
           _ => panic!("branch wasn't present in a vector commitment"),
         })
       } else {
-        TreeRoot::<C::C1, C::C2>::C2(match c2_branches.last().unwrap()[0] {
+        TreeRoot::<C::C1, C::C2>::C2(match root[0] {
           Variable::CG { commitment: i, index: _ } => params.curve_2_hash_init + proof_2_vcs.C()[i],
           _ => panic!("branch wasn't present in a vector commitment"),
         })
@@ -584,127 +659,200 @@ where
       }
     };
 
+    // TODO: Call from the prover and from the verifier
+    // This is the cleanest version of this code and it should be itself usable as a gadget
+    // (just one with a ridiculous amount of arguments)
+    #[allow(clippy::type_complexity)]
+    fn one_input<C: FcmpCurves>(
+      params: &FcmpParams<C>,
+      layers: usize,
+      transcript: &mut impl Transcript,
+      c1_circuit: &mut Circuit<C::C1>,
+      c1_dlog_challenge: &mut Option<(
+        DiscreteLogChallenge<<C::C1 as Ciphersuite>::F, C::C2Parameters>,
+        ChallengedGenerator<<C::C1 as Ciphersuite>::F, C::C2Parameters>,
+      )>,
+      c2_circuit: &mut Circuit<C::C2>,
+      c2_dlog_challenge: &mut Option<(
+        DiscreteLogChallenge<<C::C2 as Ciphersuite>::F, C::C1Parameters>,
+        ChallengedGenerator<<C::C2 as Ciphersuite>::F, C::C1Parameters>,
+      )>,
+      root: Vec<Variable>,
+      c1_branches: &mut impl Iterator<Item = Vec<Variable>>,
+      c2_branches: &mut impl Iterator<Item = Vec<Variable>>,
+      c1_commitments: &mut impl Iterator<
+        Item = (<C::C1 as Ciphersuite>::G, PointWithDlog<C::C1Parameters>),
+      >,
+      c2_commitments: &mut impl Iterator<
+        Item = (<C::C2 as Ciphersuite>::G, PointWithDlog<C::C2Parameters>),
+      >,
+      input: &Input<<C::C1 as Ciphersuite>::F>,
+      opening: TranscriptedInput<C>,
+    ) where
+      <C::OC as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
+      <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
+      <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
+    {
+      c1_circuit.first_layer(
+        transcript,
+        &CurveSpec {
+          a: <<C::OC as Ciphersuite>::G as DivisorCurve>::a(),
+          b: <<C::OC as Ciphersuite>::G as DivisorCurve>::b(),
+        },
+        &params.T_table,
+        &params.U_table,
+        &params.V_table,
+        &params.G_table,
+        //
+        input.O_tilde,
+        opening.o_blind_claim,
+        opening.O,
+        //
+        input.I_tilde,
+        opening.i_blind_u_claim,
+        opening.I,
+        //
+        input.R,
+        opening.i_blind_v_claim,
+        opening.i_blind_blind_claim,
+        //
+        input.C_tilde,
+        opening.c_blind_claim,
+        opening.C,
+        //
+        (if layers == 1 { root.clone() } else { c1_branches.next().unwrap() })
+          .chunks(3)
+          .map(|chunk| {
+            assert_eq!(chunk.len(), 3);
+            chunk.to_vec()
+          })
+          .collect(),
+      );
+
+      let amount_of_c1_branches = (layers / 2) + (layers % 2);
+      let amount_of_non_leaf_c1_branches = amount_of_c1_branches - 1;
+      let amount_of_c2_branches = layers / 2;
+
+      // Populate the challenges if they weren't prior
+      if (c1_dlog_challenge.is_none()) && (amount_of_non_leaf_c1_branches != 0) {
+        *c1_dlog_challenge = Some(c1_circuit.additional_layer_discrete_log_challenge(
+          transcript,
+          &CurveSpec {
+            a: <<C::C2 as Ciphersuite>::G as DivisorCurve>::a(),
+            b: <<C::C2 as Ciphersuite>::G as DivisorCurve>::b(),
+          },
+          &params.H_2_table,
+        ));
+      }
+
+      if (c2_dlog_challenge.is_none()) && (amount_of_c2_branches != 0) {
+        *c2_dlog_challenge = Some(c2_circuit.additional_layer_discrete_log_challenge(
+          transcript,
+          &CurveSpec {
+            a: <<C::C1 as Ciphersuite>::G as DivisorCurve>::a(),
+            b: <<C::C1 as Ciphersuite>::G as DivisorCurve>::b(),
+          },
+          &params.H_1_table,
+        ));
+      }
+
+      let root_is_c1 = (layers % 2) == 1;
+
+      // Take the branches for this input
+      let these_c1_branches = c1_branches
+        .take(amount_of_non_leaf_c1_branches.saturating_sub(usize::from(u8::from(root_is_c1))));
+      let these_c2_branches =
+        c2_branches.take(amount_of_c2_branches - usize::from(u8::from(!root_is_c1)));
+      // Push on the root (shared across all inputs and not consumed via the above iterators)
+      let (c1_chain, c2_chain) = if root_is_c1 { (Some(root), None) } else { (None, Some(root)) };
+      let these_c1_branches =
+        these_c1_branches.map(Some).chain(core::iter::once(c1_chain)).flatten();
+      let these_c2_branches =
+        these_c2_branches.map(Some).chain(core::iter::once(c2_chain)).flatten();
+
+      // Each branch represents a layer, which also opens the prior layer's commitment
+      for (branch, (prior_commitment, prior_blind_opening)) in these_c1_branches.zip(c2_commitments)
+      {
+        let (hash_x, hash_y, _) = c1_circuit.mul(None, None, None);
+        c1_circuit.additional_layer(
+          &CurveSpec {
+            a: <<C::C2 as Ciphersuite>::G as DivisorCurve>::a(),
+            b: <<C::C2 as Ciphersuite>::G as DivisorCurve>::b(),
+          },
+          c1_dlog_challenge.as_ref().unwrap(),
+          // TODO: unwrap -> error, this can get hit by a malicious proof
+          <C::C2 as Ciphersuite>::G::to_xy(params.curve_2_hash_init + prior_commitment).unwrap(),
+          prior_blind_opening,
+          (hash_x, hash_y),
+          branch,
+        );
+      }
+
+      for (branch, (prior_commitment, prior_blind_opening)) in these_c2_branches.zip(c1_commitments)
+      {
+        let (hash_x, hash_y, _) = c2_circuit.mul(None, None, None);
+        c2_circuit.additional_layer(
+          &CurveSpec {
+            a: <<C::C1 as Ciphersuite>::G as DivisorCurve>::a(),
+            b: <<C::C1 as Ciphersuite>::G as DivisorCurve>::b(),
+          },
+          c2_dlog_challenge.as_ref().unwrap(),
+          // TODO: unwrap -> error, this can get hit by a malicious proof
+          <C::C1 as Ciphersuite>::G::to_xy(params.curve_1_hash_init + prior_commitment).unwrap(),
+          prior_blind_opening,
+          (hash_x, hash_y),
+          branch,
+        );
+      }
+    }
+
     // Create the circuits
     let mut c1_circuit = Circuit::<C::C1>::verify();
     let mut c2_circuit = Circuit::<C::C2>::verify();
 
-    // Perform the layers
-    c1_circuit.first_layer(
-      &mut transcript,
-      &CurveSpec {
-        a: <<C::OC as Ciphersuite>::G as DivisorCurve>::a(),
-        b: <<C::OC as Ciphersuite>::G as DivisorCurve>::b(),
-      },
-      &params.T_table,
-      &params.U_table,
-      &params.V_table,
-      &params.G_table,
-      //
-      input.O_tilde,
-      o_blind_claim,
-      (O[0], O[1]),
-      //
-      input.I_tilde,
-      i_blind_u_claim,
-      (I[0], I[1]),
-      //
-      input.R,
-      i_blind_v_claim,
-      i_blind_blind_claim,
-      //
-      input.C_tilde,
-      c_blind_claim,
-      (C[0], C[1]),
-      //
-      c1_branches[0]
-        .chunks(3)
-        .map(|chunk| {
-          assert_eq!(chunk.len(), 3);
-          chunk.to_vec()
-        })
-        .collect(),
-    );
-
     let mut c1_dlog_challenge = None;
-    if !commitment_blind_claims_1.is_empty() {
-      c1_dlog_challenge = Some(c1_circuit.additional_layer_discrete_log_challenge(
-        &mut transcript,
-        &CurveSpec {
-          a: <<C::C2 as Ciphersuite>::G as DivisorCurve>::a(),
-          b: <<C::C2 as Ciphersuite>::G as DivisorCurve>::b(),
-        },
-        &params.H_2_table,
-      ));
-    }
-
-    // - 1, as the leaves are the first branch
-    assert_eq!(c1_branches.len() - 1, commitment_blind_claims_1.len());
-    let commitment_iter = proof_2_vcs.C().iter().cloned();
-    let branch_iter = c1_branches.into_iter().skip(1).zip(commitment_blind_claims_1);
-    for (prior_commitment, (branch, prior_blind_opening)) in
-      commitment_iter.into_iter().zip(branch_iter)
-    {
-      let (hash_x, hash_y, _) = c1_circuit.mul(None, None, None);
-      c1_circuit.additional_layer(
-        &CurveSpec {
-          a: <<C::C2 as Ciphersuite>::G as DivisorCurve>::a(),
-          b: <<C::C2 as Ciphersuite>::G as DivisorCurve>::b(),
-        },
-        c1_dlog_challenge.as_ref().unwrap(),
-        // TODO: unwrap -> error, this can get hit by a malicious proof
-        <C::C2 as Ciphersuite>::G::to_xy(params.curve_2_hash_init + prior_commitment).unwrap(),
-        prior_blind_opening,
-        (hash_x, hash_y),
-        branch,
-      );
-    }
-
     let mut c2_dlog_challenge = None;
-    if !commitment_blind_claims_2.is_empty() {
-      c2_dlog_challenge = Some(c2_circuit.additional_layer_discrete_log_challenge(
-        &mut transcript,
-        &CurveSpec {
-          a: <<C::C1 as Ciphersuite>::G as DivisorCurve>::a(),
-          b: <<C::C1 as Ciphersuite>::G as DivisorCurve>::b(),
-        },
-        &params.H_1_table,
-      ));
-    }
 
-    assert_eq!(c2_branches.len(), commitment_blind_claims_2.len());
-    let commitment_iter = proof_1_vcs.C().iter().cloned();
-    let branch_iter = c2_branches.into_iter().zip(commitment_blind_claims_2);
-    for (prior_commitment, (branch, prior_blind_opening)) in
-      commitment_iter.into_iter().zip(branch_iter)
-    {
-      let (hash_x, hash_y, _) = c2_circuit.mul(None, None, None);
-      c2_circuit.additional_layer(
-        &CurveSpec {
-          a: <<C::C1 as Ciphersuite>::G as DivisorCurve>::a(),
-          b: <<C::C1 as Ciphersuite>::G as DivisorCurve>::b(),
-        },
-        c2_dlog_challenge.as_ref().unwrap(),
-        // TODO: unwrap -> error, this can get hit by a malicious proof
-        <C::C1 as Ciphersuite>::G::to_xy(params.curve_1_hash_init + prior_commitment).unwrap(),
-        prior_blind_opening,
-        (hash_x, hash_y),
-        branch,
+    let mut c1_branches = c1_branches.into_iter();
+    let mut c2_branches = c2_branches.into_iter();
+    let mut c1_commitments = proof_1_vcs.C().iter().cloned().zip(commitment_blind_claims_2);
+    let mut c2_commitments = proof_2_vcs.C().iter().cloned().zip(commitment_blind_claims_1);
+
+    // Perform the layers
+    for (input, opening) in inputs.iter().zip(input_openings) {
+      one_input(
+        params,
+        layer_lens.len(),
+        &mut transcript,
+        &mut c1_circuit,
+        &mut c1_dlog_challenge,
+        &mut c2_circuit,
+        &mut c2_dlog_challenge,
+        root.clone(),
+        &mut c1_branches,
+        &mut c2_branches,
+        &mut c1_commitments,
+        &mut c2_commitments,
+        input,
+        opening,
       );
     }
 
     // Escape to the raw weights to form a GBP with
-    assert!(c1_circuit.muls() <= 256);
-    assert!(c2_circuit.muls() <= 128);
+    assert!(c1_circuit.muls() <= (inputs.len() * 256));
+    assert!(c2_circuit.muls() <= (inputs.len() * 128));
     // dbg!(c1_circuit.muls());
     // dbg!(c2_circuit.muls());
 
     // TODO: unwrap -> Result
-    let (c1_statement, _witness) =
-      c1_circuit.statement(params.curve_1_generators.reduce(256).unwrap(), proof_1_vcs).unwrap();
+    let (c1_statement, _witness) = c1_circuit
+      .statement(params.curve_1_generators.reduce(c1_padded_pow_2).unwrap(), proof_1_vcs)
+      .unwrap();
     c1_statement.verify(rng, verifier_1, &mut transcript).unwrap();
 
-    let (c2_statement, _witness) =
-      c2_circuit.statement(params.curve_2_generators.reduce(128).unwrap(), proof_2_vcs).unwrap();
+    let (c2_statement, _witness) = c2_circuit
+      .statement(params.curve_2_generators.reduce(c2_padded_pow_2).unwrap(), proof_2_vcs)
+      .unwrap();
     c2_statement.verify(rng, verifier_2, &mut transcript).unwrap();
   }
 }

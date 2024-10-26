@@ -374,6 +374,6 @@ impl FcmpPlusPlus {
     let fcmp_input =
       fcmps::Input::new(self.input.O_tilde, self.input.I_tilde, self.input.R, self.input.C_tilde)
         .unwrap();
-    self.fcmp.verify(rng, verifier_1, verifier_2, params, tree, layer_lens, fcmp_input);
+    self.fcmp.verify(rng, verifier_1, verifier_2, params, tree, layer_lens, &[fcmp_input]);
   }
 }
