@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 
 use core::{marker::PhantomData, borrow::Borrow};
+use std::io;
 
 use rand_core::{RngCore, CryptoRng};
 use zeroize::{Zeroize, Zeroizing};
@@ -881,5 +882,18 @@ where
       .statement(params.curve_2_generators.reduce(c2_padded_pow_2).unwrap(), proof_2_vcs)
       .unwrap();
     c2_statement.verify(rng, verifier_2, &mut transcript).unwrap();
+  }
+
+  pub fn read(reader: &mut impl io::Read, inputs: usize, layers: usize) -> io::Result<Self> {
+    let mut proof = vec![0; Self::proof_size(inputs, layers) - 64];
+    reader.read_exact(&mut proof)?;
+    let mut root_blind_pok = [0; 64];
+    reader.read_exact(&mut root_blind_pok)?;
+    Ok(Self { _curves: PhantomData, proof, root_blind_pok })
+  }
+
+  pub fn write(&self, writer: &mut impl io::Write) -> io::Result<()> {
+    writer.write_all(&self.proof)?;
+    writer.write_all(&self.root_blind_pok)
   }
 }
