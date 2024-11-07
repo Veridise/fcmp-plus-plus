@@ -26,16 +26,16 @@ where
 /// We do a multi-input proof where all inputs share a root. Accordingly, we don't need to
 /// represent the root for each input. We just need to represent the root for all inputs.
 #[derive(Clone)]
-struct BranchesWithoutRootBranch<C: FcmpCurves>
+pub(crate) struct BranchesWithoutRootBranch<C: FcmpCurves>
 where
   <C::OC as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
   <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
   <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
 {
   // This is None if the leaves directly feed into the root
-  leaves: Option<Vec<Output<<C::OC as Ciphersuite>::G>>>,
-  curve_2_layers: Vec<Vec<<C::C2 as Ciphersuite>::F>>,
-  curve_1_layers: Vec<Vec<<C::C1 as Ciphersuite>::F>>,
+  pub(crate) leaves: Option<Vec<Output<<C::OC as Ciphersuite>::G>>>,
+  pub(crate) curve_2_layers: Vec<Vec<<C::C2 as Ciphersuite>::F>>,
+  pub(crate) curve_1_layers: Vec<Vec<<C::C1 as Ciphersuite>::F>>,
 }
 
 /// The root branch.
@@ -79,7 +79,7 @@ where
   /// The input.
   pub(crate) input: Input<<<C::OC as Ciphersuite>::G as DivisorCurve>::FieldElement>,
   /// The non-root branches for this output in the tree.
-  branches: BranchesWithoutRootBranch<C>,
+  pub(crate) branches: BranchesWithoutRootBranch<C>,
 }
 
 pub struct BranchesWithBlinds<C: FcmpCurves>

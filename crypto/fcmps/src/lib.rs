@@ -123,6 +123,95 @@ where
   <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
   <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
 {
+  pub fn proof_size(inputs: usize, layers: usize) -> usize {
+    let mut proof_elements = 16; // AI, AO, AS, tau_x, u, t_caret, a, b for each BP
+
+    let c1_padded_pow_2 = {
+      let base = inputs * 256;
+      let mut res = 1;
+      while res < base {
+        res <<= 1;
+        proof_elements += 1;
+      }
+      res
+    };
+    let c2_padded_pow_2 = {
+      let base = inputs * 128;
+      let mut res = 1;
+      while res < base {
+        res <<= 1;
+        proof_elements += 1;
+      }
+      res
+    };
+
+    let mut c1_tape = VectorCommitmentTape {
+      commitment_len: c1_padded_pow_2,
+      current_j_offset: 0,
+      commitments: vec![],
+    };
+    let mut c1_branches = Vec::with_capacity((layers / 2) + (layers % 2));
+    let mut c2_tape = VectorCommitmentTape {
+      commitment_len: c2_padded_pow_2,
+      current_j_offset: 0,
+      commitments: vec![],
+    };
+    let mut c2_branches = Vec::with_capacity(layers / 2);
+
+    // We use 0 for `append_branch` as the commitments effected is constant to the size of the
+    // branch
+    for _ in 0 .. inputs {
+      for i in 0 .. (layers - 1) {
+        if (i % 2) == 0 {
+          c1_branches.push(c1_tape.append_branch::<C::C1>(0, None));
+        } else {
+          c2_branches.push(c2_tape.append_branch::<C::C2>(0, None));
+        }
+      }
+    }
+
+    if (layers % 2) == 1 {
+      c1_tape.append_branch::<C::C1>(0, None);
+    } else {
+      c2_tape.append_branch::<C::C2>(0, None);
+    }
+
+    for _ in 0 .. inputs {
+      c1_tape.append_claimed_point::<C::OcParameters>(None, None, None, None);
+      c1_tape.append_claimed_point::<C::OcParameters>(None, None, None, None);
+      c1_tape.append_divisor::<C::OcParameters>(None, None);
+      c1_tape.append_claimed_point::<C::OcParameters>(None, None, None, None);
+      c1_tape.append_claimed_point::<C::OcParameters>(None, None, None, None);
+    }
+
+    for _ in 0 .. (if c1_branches.is_empty() {
+      0
+    } else {
+      (c1_branches.len() - inputs) + (inputs * (layers % 2))
+    }) {
+      c1_tape.append_claimed_point::<C::C2Parameters>(None, None, None, None);
+    }
+
+    for _ in 0 .. (c2_branches.len() + (inputs * usize::from((layers % 2) == 0))) {
+      c2_tape.append_claimed_point::<C::C1Parameters>(None, None, None, None);
+    }
+
+    let ni = 2 * (c1_tape.commitments.len() + 1);
+    let l_r_poly_len = 1 + ni + 1;
+    let t_poly_len = (2 * l_r_poly_len) - 1;
+    let t_commitments = t_poly_len - 1;
+    proof_elements += t_commitments;
+
+    let ni = 2 * (c2_tape.commitments.len() + 1);
+    let l_r_poly_len = 1 + ni + 1;
+    let t_poly_len = (2 * l_r_poly_len) - 1;
+    let t_commitments = t_poly_len - 1;
+    proof_elements += t_commitments;
+
+    // This assumes 32 bytes per proof element, then 64 bytes for the PoK
+    (32 * proof_elements) + 64
+  }
+
   fn transcript(
     tree: TreeRoot<C::C1, C::C2>,
     inputs: &[impl Borrow<Input<<C::C1 as Ciphersuite>::F>>],
@@ -539,9 +628,19 @@ where
       .unwrap();
     c2_statement.prove(rng, &mut transcript, c2_witness.unwrap()).unwrap();
 
-    Fcmp { _curves: PhantomData, proof: transcript.complete(), root_blind_pok }
+    let res = Fcmp { _curves: PhantomData, proof: transcript.complete(), root_blind_pok };
+    debug_assert!({
+      let actual_proof_len = res.proof.len() + 64;
+      let layers = 1 +
+        usize::from(u8::from(branches.per_input[0].branches.leaves.is_some())) +
+        branches.per_input[0].branches.curve_1_layers.len() +
+        branches.per_input[0].branches.curve_2_layers.len();
+      actual_proof_len == Self::proof_size(branches.per_input.len(), layers)
+    });
+    res
   }
 
+  /// Each layer length is expected to be less than 128
   #[allow(clippy::too_many_arguments)]
   pub fn verify<R: RngCore + CryptoRng>(
     &self,

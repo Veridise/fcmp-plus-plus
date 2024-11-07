@@ -12,6 +12,7 @@ pub(crate) use generalized_bulletproofs_circuit_abstraction::Transcript;
 
 use crate::*;
 
+/// Every curve is expected to have a 32-byte encoding for scalars and points.
 pub trait FcmpCurves {
   type OC: Ciphersuite;
   type OcParameters: DiscreteLogParameters;
