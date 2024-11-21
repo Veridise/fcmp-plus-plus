@@ -132,7 +132,7 @@ where
       let mut res = 1;
       while res < base {
         res <<= 1;
-        proof_elements += 1;
+        proof_elements += 2;
       }
       res
     };
@@ -141,7 +141,7 @@ where
       let mut res = 1;
       while res < base {
         res <<= 1;
-        proof_elements += 1;
+        proof_elements += 2;
       }
       res
     };
@@ -159,8 +159,8 @@ where
     };
     let mut c2_branches = Vec::with_capacity(layers / 2);
 
-    // We use 0 for `append_branch` as the commitments effected is constant to the size of the
-    // branch
+    // We use 0 for `append_branch` as the amount of commitments effected is constant to the size
+    // of the branch
     for _ in 0 .. inputs {
       for i in 0 .. (layers - 1) {
         if (i % 2) == 0 {
@@ -197,17 +197,17 @@ where
       c2_tape.append_claimed_point::<C::C1Parameters>(None, None, None, None);
     }
 
-    let ni = 2 * (c1_tape.commitments.len() + 1);
+    let ni = 2 + (2 * (c1_tape.commitments.len() / 2));
     let l_r_poly_len = 1 + ni + 1;
     let t_poly_len = (2 * l_r_poly_len) - 1;
     let t_commitments = t_poly_len - 1;
-    proof_elements += t_commitments;
+    proof_elements += c1_tape.commitments.len() + t_commitments;
 
-    let ni = 2 * (c2_tape.commitments.len() + 1);
+    let ni = 2 + (2 * (c2_tape.commitments.len() / 2));
     let l_r_poly_len = 1 + ni + 1;
     let t_poly_len = (2 * l_r_poly_len) - 1;
     let t_commitments = t_poly_len - 1;
-    proof_elements += t_commitments;
+    proof_elements += c2_tape.commitments.len() + t_commitments;
 
     // This assumes 32 bytes per proof element, then 64 bytes for the PoK
     (32 * proof_elements) + 64
@@ -622,17 +622,13 @@ where
     c2_statement.prove(rng, &mut transcript, c2_witness.unwrap()).unwrap();
 
     let res = Fcmp { _curves: PhantomData, proof: transcript.complete(), root_blind_pok };
-    /* TODO
-    debug_assert!({
-      let actual_proof_len = res.proof.len() + 64;
+    debug_assert_eq!(res.proof.len() + 64, {
       let layers = 1 +
         usize::from(u8::from(branches.per_input[0].branches.leaves.is_some())) +
         branches.per_input[0].branches.curve_1_layers.len() +
         branches.per_input[0].branches.curve_2_layers.len();
-      actual_proof_len == Self::proof_size(branches.per_input.len(), layers)
+      Self::proof_size(branches.per_input.len(), layers)
     });
-    */
-    #[allow(clippy::let_and_return)] // TODO
     res
   }
 
