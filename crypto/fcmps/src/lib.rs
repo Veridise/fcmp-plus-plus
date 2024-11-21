@@ -45,6 +45,18 @@ pub mod tree;
 #[cfg(test)]
 mod tests;
 
+pub const LAYER_ONE_LEN: usize = 38;
+pub const LAYER_TWO_LEN: usize = 18;
+#[cfg(test)]
+const TARGET_LAYERS: usize = 8;
+
+const C1_LEAVES_ROWS_PER_INPUT: usize = 97;
+const C1_BRANCH_ROWS_PER_INPUT: usize = 52;
+const C2_ROWS_PER_INPUT_PER_LAYER: usize = 32;
+
+const C1_TARGET_ROWS: usize = 256;
+const C2_TARGET_ROWS: usize = 128;
+
 /// A struct representing an output tuple.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
 pub struct Output<G: Group> {
@@ -124,27 +136,46 @@ where
   <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
   <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
 {
+  // Returns pair of how many rows to use in the IPAs (each non-0).
+  fn ipa_rows(inputs: usize, layers: usize) -> (usize, usize) {
+    let non_leaves_c1_branches = layers.saturating_sub(1) / 2;
+    let c1_rows =
+      inputs * (C1_LEAVES_ROWS_PER_INPUT + (non_leaves_c1_branches * C1_BRANCH_ROWS_PER_INPUT));
+
+    let c2_branches = layers / 2;
+    let c2_rows = inputs * ((c2_branches * C2_ROWS_PER_INPUT_PER_LAYER).max(1));
+
+    let pad = |value| {
+      let mut res = 1;
+      while res < value {
+        res <<= 1;
+      }
+      res
+    };
+    (pad(c1_rows).max(C1_TARGET_ROWS), pad(c2_rows).max(C2_TARGET_ROWS))
+  }
+
   pub fn proof_size(inputs: usize, layers: usize) -> usize {
     let mut proof_elements = 16; // AI, AO, AS, tau_x, u, t_caret, a, b for each BP
 
-    let c1_padded_pow_2 = {
-      let base = inputs * 256;
+    let (c1_padded_pow_2, c2_padded_pow_2) = Self::ipa_rows(inputs, layers);
+
+    {
+      let base = c1_padded_pow_2;
       let mut res = 1;
       while res < base {
         res <<= 1;
         proof_elements += 2;
       }
-      res
-    };
-    let c2_padded_pow_2 = {
-      let base = inputs * 128;
+    }
+    {
+      let base = c2_padded_pow_2;
       let mut res = 1;
       while res < base {
         res <<= 1;
         proof_elements += 2;
       }
-      res
-    };
+    }
 
     let mut c1_tape = VectorCommitmentTape {
       commitment_len: c1_padded_pow_2,
@@ -442,22 +473,13 @@ where
     <C::C1 as Ciphersuite>::F: PrimeField<Repr = [u8; 32]>,
     <C::C2 as Ciphersuite>::F: PrimeField<Repr = [u8; 32]>,
   {
-    let c1_padded_pow_2 = {
-      let base = branches.per_input.len() * 256;
-      let mut res = 1;
-      while res < base {
-        res <<= 1;
-      }
-      res
-    };
-    let c2_padded_pow_2 = {
-      let base = branches.per_input.len() * 128;
-      let mut res = 1;
-      while res < base {
-        res <<= 1;
-      }
-      res
-    };
+    let (c1_padded_pow_2, c2_padded_pow_2) = Self::ipa_rows(
+      branches.per_input.len(),
+      usize::from(u8::from(branches.per_input[0].branches.leaves.is_some())) +
+        branches.per_input[0].branches.curve_1_layers.len() +
+        branches.per_input[0].branches.curve_2_layers.len() +
+        1,
+    );
 
     let mut c1_tape = VectorCommitmentTape {
       commitment_len: c1_padded_pow_2,
@@ -605,8 +627,8 @@ where
     debug_assert!(transcripted_blinds_c1.next().is_none());
     debug_assert!(transcripted_blinds_c2.next().is_none());
 
-    assert!(c1_circuit.muls() <= (branches.per_input.len() * 256));
-    assert!(c2_circuit.muls() <= (branches.per_input.len() * 128));
+    assert!(c1_circuit.muls() <= c1_padded_pow_2);
+    assert!(c2_circuit.muls() <= c2_padded_pow_2);
     // dbg!(c1_circuit.muls());
     // dbg!(c2_circuit.muls());
 
@@ -646,22 +668,7 @@ where
   ) {
     assert!(!layer_lens.is_empty());
 
-    let c1_padded_pow_2 = {
-      let base = inputs.len() * 256;
-      let mut res = 1;
-      while res < base {
-        res <<= 1;
-      }
-      res
-    };
-    let c2_padded_pow_2 = {
-      let base = inputs.len() * 128;
-      let mut res = 1;
-      while res < base {
-        res <<= 1;
-      }
-      res
-    };
+    let (c1_padded_pow_2, c2_padded_pow_2) = Self::ipa_rows(inputs.len(), layer_lens.len());
 
     let mut c1_tape = VectorCommitmentTape {
       commitment_len: c1_padded_pow_2,
@@ -858,8 +865,8 @@ where
     }
 
     // Escape to the raw weights to form a GBP with
-    assert!(c1_circuit.muls() <= (inputs.len() * 256));
-    assert!(c2_circuit.muls() <= (inputs.len() * 128));
+    assert!(c1_circuit.muls() <= c1_padded_pow_2);
+    assert!(c2_circuit.muls() <= c2_padded_pow_2);
     // dbg!(c1_circuit.muls());
     // dbg!(c2_circuit.muls());
 

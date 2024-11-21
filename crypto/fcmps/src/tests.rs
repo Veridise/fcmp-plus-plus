@@ -8,10 +8,6 @@ use ec_divisors::ScalarDecomposition;
 
 use crate::{*, tree::hash_grow};
 
-const LAYER_ONE_LEN: usize = 38;
-const LAYER_TWO_LEN: usize = 18;
-const TARGET_LAYERS: usize = 8;
-
 struct Ed25519Params;
 impl DiscreteLogParameters for Ed25519Params {
   type ScalarBits = U<{ <<Ed25519 as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
@@ -63,8 +59,8 @@ fn random_params(
   let V = <Ed25519 as Ciphersuite>::G::random(&mut OsRng);
 
   let params = FcmpParams::<MoneroCurves>::new(
-    generalized_bulletproofs::tests::generators::<Selene>(input_limit * 256),
-    generalized_bulletproofs::tests::generators::<Helios>(input_limit * 128),
+    generalized_bulletproofs::tests::generators::<Selene>(2 * (input_limit * 256)),
+    generalized_bulletproofs::tests::generators::<Helios>(2 * (input_limit * 128)),
     // Hash init generators
     <Selene as Ciphersuite>::G::random(&mut OsRng),
     <Helios as Ciphersuite>::G::random(&mut OsRng),
@@ -544,7 +540,7 @@ fn test_single_input() {
 
   let output_blinds = random_output_blinds(G, T, U, V);
 
-  for layers in 1 ..= TARGET_LAYERS {
+  for layers in 1 ..= (TARGET_LAYERS + 1) {
     println!("Testing a proof with 1 input and {layers} layers");
 
     let (path, layer_lens, root) = random_path(&params, layers);
