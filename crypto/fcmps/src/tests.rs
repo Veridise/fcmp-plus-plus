@@ -84,10 +84,9 @@ fn random_output() -> Output<<Ed25519 as Ciphersuite>::G> {
 fn random_path(
   params: &FcmpParams<MoneroCurves>,
   layers: usize,
-) -> (Path<MoneroCurves>, Vec<usize>, TreeRoot<Selene, Helios>) {
+) -> (Path<MoneroCurves>, TreeRoot<Selene, Helios>) {
   assert!(layers >= 1);
 
-  let mut layer_lens = vec![3 * LAYER_ONE_LEN];
   let mut leaves = vec![];
   while leaves.len() < LAYER_ONE_LEN {
     leaves.push(random_output());
@@ -143,7 +142,6 @@ fn random_path(
     });
 
     curve_2_layers.push(curve_2_layer);
-    layer_lens.push(LAYER_TWO_LEN);
 
     if (1 + curve_1_layers.len() + curve_2_layers.len()) == layers {
       break;
@@ -170,7 +168,6 @@ fn random_path(
     });
 
     curve_1_layers.push(curve_1_layer);
-    layer_lens.push(LAYER_ONE_LEN);
 
     if (1 + curve_1_layers.len() + curve_2_layers.len()) == layers {
       break;
@@ -183,29 +180,22 @@ fn random_path(
     TreeRoot::<Selene, Helios>::C2(helios_hash.unwrap())
   };
 
-  (Path { output, leaves, curve_2_layers, curve_1_layers }, layer_lens, root)
+  (Path { output, leaves, curve_2_layers, curve_1_layers }, root)
 }
 
 fn random_paths(
   params: &FcmpParams<MoneroCurves>,
   layers: usize,
   paths: usize,
-) -> (Vec<Path<MoneroCurves>>, Vec<usize>, TreeRoot<Selene, Helios>) {
+) -> (Vec<Path<MoneroCurves>>, TreeRoot<Selene, Helios>) {
   assert!(paths >= 1);
   assert!(paths <= LAYER_ONE_LEN.min(LAYER_TWO_LEN));
 
   let mut res = vec![];
-  let mut layer_lens = None;
   for _ in 0 .. paths {
-    let (path, these_layer_lens, _root) = random_path(params, layers);
+    let (path, _root) = random_path(params, layers);
     res.push(path);
-    if let Some(layer_lens) = &layer_lens {
-      assert_eq!(&these_layer_lens, layer_lens);
-    } else {
-      layer_lens = Some(these_layer_lens);
-    }
   }
-  let layer_lens = layer_lens.unwrap();
 
   // Pop each path's top layer
   // Then push a new top layer which is unified for all paths
@@ -213,8 +203,6 @@ fn random_paths(
   // 2nd layer has a C2 root (so the top layer is C1)
   // 3rd layer has a C1 root (so the top layer is C2)
   let root = if layers == 1 {
-    assert_eq!(*layer_lens.last().unwrap(), 3 * res[0].leaves.len());
-
     let mut outputs = vec![];
     for path in &res {
       outputs.push(path.output);
@@ -250,8 +238,6 @@ fn random_paths(
       .unwrap(),
     )
   } else if (layers % 2) == 0 {
-    assert_eq!(*layer_lens.last().unwrap(), res[0].curve_2_layers.last().unwrap().len());
-
     let mut branch = vec![];
     for path in &res {
       branch.push(
@@ -309,8 +295,6 @@ fn random_paths(
       .unwrap(),
     )
   } else {
-    assert_eq!(*layer_lens.last().unwrap(), res[0].curve_1_layers.last().unwrap().len());
-
     let mut branch = vec![];
     for path in &res {
       branch.push(
@@ -437,7 +421,7 @@ fn random_paths(
     }
   }
 
-  (res, layer_lens, root)
+  (res, root)
 }
 
 fn random_output_blinds(
@@ -511,7 +495,7 @@ fn verify_fn(
   proof: Fcmp<MoneroCurves>,
   params: &FcmpParams<MoneroCurves>,
   root: TreeRoot<Selene, Helios>,
-  layer_lens: &[usize],
+  layers: usize,
   inputs: &[Input<<Selene as Ciphersuite>::F>],
 ) {
   let mut times = vec![];
@@ -522,7 +506,9 @@ fn verify_fn(
     let mut verifier_2 = params.curve_2_generators.batch_verifier();
 
     for _ in 0 .. batch {
-      proof.verify(&mut OsRng, &mut verifier_1, &mut verifier_2, params, root, layer_lens, inputs);
+      proof
+        .verify(&mut OsRng, &mut verifier_1, &mut verifier_2, params, root, layers, inputs)
+        .unwrap();
     }
 
     assert!(params.curve_1_generators.verify(verifier_1));
@@ -543,7 +529,7 @@ fn test_single_input() {
   for layers in 1 ..= (TARGET_LAYERS + 1) {
     println!("Testing a proof with 1 input and {layers} layers");
 
-    let (path, layer_lens, root) = random_path(&params, layers);
+    let (path, root) = random_path(&params, layers);
     let output = path.output;
 
     let branches = Branches::new(vec![path]).unwrap();
@@ -553,11 +539,11 @@ fn test_single_input() {
     let proof = Fcmp::prove(
       &mut OsRng,
       &params,
-      root,
       blind_branches(&params, branches, vec![output_blinds.clone()]),
-    );
+    )
+    .unwrap();
 
-    verify_fn(1, 1, proof.clone(), &params, root, &layer_lens, &[input]);
+    verify_fn(1, 1, proof.clone(), &params, root, layers, &[input]);
   }
 }
 
@@ -570,7 +556,7 @@ fn test_multiple_inputs() {
     for layers in 1 ..= 4 {
       println!("Testing a proof with {paths} inputs and {layers} layers");
 
-      let (paths, layer_lens, root) = random_paths(&params, layers, paths);
+      let (paths, root) = random_paths(&params, layers, paths);
 
       let mut output_blinds = vec![];
       for _ in 0 .. paths.len() {
@@ -585,9 +571,9 @@ fn test_multiple_inputs() {
       let branches = Branches::new(paths).unwrap();
 
       let proof =
-        Fcmp::prove(&mut OsRng, &params, root, blind_branches(&params, branches, output_blinds));
+        Fcmp::prove(&mut OsRng, &params, blind_branches(&params, branches, output_blinds)).unwrap();
 
-      verify_fn(1, 1, proof, &params, root, &layer_lens, &inputs);
+      verify_fn(1, 1, proof, &params, root, layers, &inputs);
     }
   }
 
@@ -600,7 +586,7 @@ fn prove_benchmark() {
   let inputs = 1; // TODO: Test with a variety of inputs
 
   let (G, T, U, V, params) = random_params(inputs);
-  let (path, _layer_lens, root) = random_path(&params, TARGET_LAYERS);
+  let (path, _root) = random_path(&params, TARGET_LAYERS);
 
   let mut set_size = 1u64;
   for i in 0 .. TARGET_LAYERS {
@@ -620,9 +606,9 @@ fn prove_benchmark() {
     let proof = Fcmp::prove(
       &mut OsRng,
       &params,
-      root,
       blind_branches(&params, branches.clone(), vec![output_blinds]),
-    );
+    )
+    .unwrap();
 
     core::hint::black_box(proof);
   }
@@ -637,7 +623,7 @@ fn prove_benchmark() {
 fn verify_benchmark() {
   let (G, T, U, V, params) = random_params(1);
 
-  let (path, layer_lens, root) = random_path(&params, TARGET_LAYERS);
+  let (path, root) = random_path(&params, TARGET_LAYERS);
   let output = path.output;
 
   let branches = Branches::new(vec![path]).unwrap();
@@ -648,11 +634,11 @@ fn verify_benchmark() {
   let proof = Fcmp::prove(
     &mut OsRng,
     &params,
-    root,
     blind_branches(&params, branches.clone(), vec![output_blinds]),
-  );
+  )
+  .unwrap();
 
-  verify_fn(100, 1, proof.clone(), &params, root, &layer_lens, &[input]);
-  verify_fn(100, 10, proof.clone(), &params, root, &layer_lens, &[input]);
-  verify_fn(100, 100, proof.clone(), &params, root, &layer_lens, &[input]);
+  verify_fn(100, 1, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
+  verify_fn(100, 10, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
+  verify_fn(100, 100, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
 }

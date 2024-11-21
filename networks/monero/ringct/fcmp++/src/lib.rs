@@ -320,7 +320,7 @@ impl SpendAuthAndLinkability {
     (L, SpendAuthAndLinkability { P, bp_plus: BpPlus { A, B, s_alpha, s_beta, s_delta }, gsp })
   }
 
-  #[allow(unused)]
+  #[allow(unused, clippy::result_unit_err)]
   pub fn verify(
     self,
     rng: &mut (impl RngCore + CryptoRng),
@@ -328,7 +328,7 @@ impl SpendAuthAndLinkability {
     signable_tx_hash: [u8; 32],
     input: &Input,
     key_image: <Ed25519 as Ciphersuite>::G,
-  ) {
+  ) -> Result<(), ()> {
     todo!("TODO")
   }
 }
@@ -349,7 +349,7 @@ impl FcmpPlusPlus {
     FcmpPlusPlus { input, fcmp, spend_auth_and_linkability }
   }
 
-  #[allow(clippy::too_many_arguments)]
+  #[allow(clippy::too_many_arguments, clippy::result_unit_err)]
   pub fn verify(
     self,
     rng: &mut (impl RngCore + CryptoRng),
@@ -358,22 +358,21 @@ impl FcmpPlusPlus {
     verifier_2: &mut generalized_bulletproofs::BatchVerifier<Helios>,
     params: &FcmpParams<Curves>,
     tree: TreeRoot<<Curves as FcmpCurves>::C1, <Curves as FcmpCurves>::C2>,
-    layer_lens: &[usize],
+    layers: usize,
     signable_tx_hash: [u8; 32],
     key_image: <Ed25519 as Ciphersuite>::G,
-  ) {
+  ) -> Result<(), ()> {
     self.spend_auth_and_linkability.verify(
       rng,
       verifier_ed,
       signable_tx_hash,
       &self.input,
       key_image,
-    );
+    )?;
 
-    // TODO: Return false, don't panic
     let fcmp_input =
       fcmps::Input::new(self.input.O_tilde, self.input.I_tilde, self.input.R, self.input.C_tilde)
-        .unwrap();
-    self.fcmp.verify(rng, verifier_1, verifier_2, params, tree, layer_lens, &[fcmp_input]);
+        .ok_or(())?;
+    self.fcmp.verify(rng, verifier_1, verifier_2, params, tree, layers, &[fcmp_input])
   }
 }

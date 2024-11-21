@@ -284,7 +284,7 @@ where
   }
 
   // Prove for a single input's membership
-  #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+  #[allow(clippy::too_many_arguments, clippy::type_complexity, clippy::result_unit_err)]
   fn input(
     params: &FcmpParams<C>,
     layers: usize,
@@ -316,7 +316,7 @@ where
     >,
     input: &Input<<C::C1 as Ciphersuite>::F>,
     opening: TranscriptedInput<C>,
-  ) {
+  ) -> Result<(), ()> {
     // Open the input tuple to the output and prove its membership on the first branch
     c1_circuit.first_layer(
       transcript,
@@ -406,6 +406,8 @@ where
         None,
         None,
         prior_blind.map(|blind| {
+          // Only reachable if the blind happens to be the discrete log of the commitment
+          // (negligible probability)
           <C::C2 as Ciphersuite>::G::to_xy(
             prior_commitment - (params.curve_2_generators.h() * blind),
           )
@@ -419,8 +421,7 @@ where
           b: <<C::C2 as Ciphersuite>::G as DivisorCurve>::b(),
         },
         c1_dlog_challenge.as_ref().unwrap(),
-        // TODO: unwrap -> error, this can get hit by a malicious proof
-        <C::C2 as Ciphersuite>::G::to_xy(prior_commitment).unwrap(),
+        <C::C2 as Ciphersuite>::G::to_xy(prior_commitment).ok_or(())?,
         prior_blind_opening,
         (hash_x, hash_y),
         branch,
@@ -447,32 +448,68 @@ where
           b: <<C::C1 as Ciphersuite>::G as DivisorCurve>::b(),
         },
         c2_dlog_challenge.as_ref().unwrap(),
-        // TODO: unwrap -> error, this can get hit by a malicious proof
-        <C::C1 as Ciphersuite>::G::to_xy(prior_commitment).unwrap(),
+        <C::C1 as Ciphersuite>::G::to_xy(prior_commitment).ok_or(())?,
         prior_blind_opening,
         (hash_x, hash_y),
         branch,
       );
     }
+
+    Ok(())
   }
 
   /// Prove a FCMP.
   ///
-  /// This function MAY panic upon an invalid witness.
-  #[allow(clippy::too_many_arguments)]
+  /// This function MAY panic upon an invalid witness, despite returning a result.
+  ///
+  /// This function is not guaranteed to be constant time if the path witnessed isn't full due to
+  /// being on the right-most edge.
+  #[allow(clippy::too_many_arguments, clippy::result_unit_err)]
   pub fn prove<R: RngCore + CryptoRng>(
     rng: &mut R,
     params: &FcmpParams<C>,
-    // TODO: Why take this in? Why not re-calc it from the branches?
-    tree: TreeRoot<C::C1, C::C2>,
     branches: BranchesWithBlinds<C>,
-  ) -> Self
+  ) -> Result<Self, ()>
   where
     <C::C1 as Ciphersuite>::G: GroupEncoding<Repr = [u8; 32]>,
     <C::C2 as Ciphersuite>::G: GroupEncoding<Repr = [u8; 32]>,
     <C::C1 as Ciphersuite>::F: PrimeField<Repr = [u8; 32]>,
     <C::C2 as Ciphersuite>::F: PrimeField<Repr = [u8; 32]>,
   {
+    let tree: TreeRoot<C::C1, C::C2> = match &branches.root {
+      RootBranch::Leaves(leaves) => {
+        let mut items = vec![];
+        for (scalar, point) in leaves
+          .iter()
+          .flat_map(|output| {
+            [
+              <C::OC as Ciphersuite>::G::to_xy(output.O).unwrap().0,
+              <C::OC as Ciphersuite>::G::to_xy(output.I).unwrap().0,
+              <C::OC as Ciphersuite>::G::to_xy(output.C).unwrap().0,
+            ]
+          })
+          .zip(params.curve_1_generators.g_bold_slice())
+        {
+          items.push((scalar, *point));
+        }
+        TreeRoot::C1(params.curve_1_hash_init + multiexp::multiexp(&items))
+      }
+      RootBranch::C1(branches) => {
+        let mut items = vec![];
+        for (scalar, point) in branches.iter().zip(params.curve_1_generators.g_bold_slice()) {
+          items.push((*scalar, *point));
+        }
+        TreeRoot::C1(params.curve_1_hash_init + multiexp::multiexp(&items))
+      }
+      RootBranch::C2(branches) => {
+        let mut items = vec![];
+        for (scalar, point) in branches.iter().zip(params.curve_2_generators.g_bold_slice()) {
+          items.push((*scalar, *point));
+        }
+        TreeRoot::C2(params.curve_2_hash_init + multiexp::multiexp(&items))
+      }
+    };
+
     let (c1_padded_pow_2, c2_padded_pow_2) = Self::ipa_rows(
       branches.per_input.len(),
       usize::from(u8::from(branches.per_input[0].branches.leaves.is_some())) +
@@ -622,26 +659,25 @@ where
         &mut c2_commitments,
         &input.input,
         transcripted_input,
-      );
+      )?;
     }
     debug_assert!(transcripted_blinds_c1.next().is_none());
     debug_assert!(transcripted_blinds_c2.next().is_none());
 
-    assert!(c1_circuit.muls() <= c1_padded_pow_2);
-    assert!(c2_circuit.muls() <= c2_padded_pow_2);
+    debug_assert!(c1_circuit.muls() <= c1_padded_pow_2);
+    debug_assert!(c2_circuit.muls() <= c2_padded_pow_2);
     // dbg!(c1_circuit.muls());
     // dbg!(c2_circuit.muls());
 
-    // TODO: unwrap -> Result
     let (c1_statement, c1_witness) = c1_circuit
-      .statement(params.curve_1_generators.reduce(c1_padded_pow_2).unwrap(), commitments_1)
-      .unwrap();
-    c1_statement.clone().prove(rng, &mut transcript, c1_witness.unwrap()).unwrap();
+      .statement(params.curve_1_generators.reduce(c1_padded_pow_2).ok_or(())?, commitments_1)
+      .map_err(|_| ())?;
+    c1_statement.clone().prove(rng, &mut transcript, c1_witness.ok_or(())?).map_err(|_| ())?;
 
     let (c2_statement, c2_witness) = c2_circuit
-      .statement(params.curve_2_generators.reduce(c2_padded_pow_2).unwrap(), commitments_2)
-      .unwrap();
-    c2_statement.prove(rng, &mut transcript, c2_witness.unwrap()).unwrap();
+      .statement(params.curve_2_generators.reduce(c2_padded_pow_2).ok_or(())?, commitments_2)
+      .map_err(|_| ())?;
+    c2_statement.prove(rng, &mut transcript, c2_witness.ok_or(())?).map_err(|_| ())?;
 
     let res = Fcmp { _curves: PhantomData, proof: transcript.complete(), root_blind_pok };
     debug_assert_eq!(res.proof.len() + 64, {
@@ -651,11 +687,12 @@ where
         branches.per_input[0].branches.curve_2_layers.len();
       Self::proof_size(branches.per_input.len(), layers)
     });
-    res
+    Ok(res)
   }
 
-  /// Each layer length is expected to be less than 128
-  #[allow(clippy::too_many_arguments)]
+  /// This MAY panic if called with invalid arguments, such as a tree root which doesn't correspond
+  /// to the layer count.
+  #[allow(clippy::too_many_arguments, clippy::result_unit_err)]
   pub fn verify<R: RngCore + CryptoRng>(
     &self,
     rng: &mut R,
@@ -663,42 +700,48 @@ where
     verifier_2: &mut BatchVerifier<C::C2>,
     params: &FcmpParams<C>,
     tree: TreeRoot<C::C1, C::C2>,
-    layer_lens: &[usize],
+    layers: usize,
     inputs: &[Input<<C::C1 as Ciphersuite>::F>],
-  ) {
-    assert!(!layer_lens.is_empty());
+  ) -> Result<(), ()> {
+    if (layers == 0) || inputs.is_empty() {
+      Err(())?;
+    }
 
-    let (c1_padded_pow_2, c2_padded_pow_2) = Self::ipa_rows(inputs.len(), layer_lens.len());
+    let (c1_padded_pow_2, c2_padded_pow_2) = Self::ipa_rows(inputs.len(), layers);
 
     let mut c1_tape = VectorCommitmentTape {
       commitment_len: c1_padded_pow_2,
       current_j_offset: 0,
       commitments: vec![],
     };
-    let mut c1_branches = Vec::with_capacity((layer_lens.len() / 2) + (layer_lens.len() % 2));
+    let mut c1_branches = Vec::with_capacity((layers / 2) + (layers % 2));
     let mut c2_tape = VectorCommitmentTape {
       commitment_len: c2_padded_pow_2,
       current_j_offset: 0,
       commitments: vec![],
     };
-    let mut c2_branches = Vec::with_capacity(layer_lens.len() / 2);
+    let mut c2_branches = Vec::with_capacity(layers / 2);
 
     // Append the leaves and the non-root branches to the tape
     for _ in inputs {
-      for (i, layer_len) in layer_lens[.. (layer_lens.len() - 1)].iter().enumerate() {
+      for i in 0 .. (layers - 1) {
         if (i % 2) == 0 {
-          c1_branches.push(c1_tape.append_branch::<C::C1>(*layer_len, None));
+          c1_branches.push(
+            c1_tape
+              .append_branch::<C::C1>(if i == 0 { 3 * LAYER_ONE_LEN } else { LAYER_ONE_LEN }, None),
+          );
         } else {
-          c2_branches.push(c2_tape.append_branch::<C::C2>(*layer_len, None));
+          c2_branches.push(c2_tape.append_branch::<C::C2>(LAYER_TWO_LEN, None));
         }
       }
     }
 
     // Append the root branch to the tape
-    let root = if (layer_lens.len() % 2) == 1 {
-      c1_tape.append_branch::<C::C1>(*layer_lens.last().unwrap(), None)
+    let root = if (layers % 2) == 1 {
+      c1_tape
+        .append_branch::<C::C1>(if layers == 1 { 3 * LAYER_ONE_LEN } else { LAYER_ONE_LEN }, None)
     } else {
-      c2_tape.append_branch::<C::C2>(*layer_lens.last().unwrap(), None)
+      c2_tape.append_branch::<C::C2>(LAYER_TWO_LEN, None)
     };
 
     // Transcript the inputs
@@ -776,13 +819,14 @@ where
       Self::transcript(tree, inputs, &self.root_blind_pok[.. 32]),
       &self.proof,
     );
-    // TODO: Return an error here
-    let proof_1_vcs = transcript.read_commitments::<C::C1>(c1_tape.commitments.len(), 0).unwrap();
-    let proof_2_vcs = transcript.read_commitments::<C::C2>(c2_tape.commitments.len(), 0).unwrap();
+    let proof_1_vcs =
+      transcript.read_commitments::<C::C1>(c1_tape.commitments.len(), 0).map_err(|_| ())?;
+    let proof_2_vcs =
+      transcript.read_commitments::<C::C2>(c2_tape.commitments.len(), 0).map_err(|_| ())?;
 
     // Verify the root blind PoK
     {
-      let claimed_root = if (layer_lens.len() % 2) == 1 {
+      let claimed_root = if (layers % 2) == 1 {
         TreeRoot::<C::C1, C::C2>::C1(match root[0] {
           Variable::CG { commitment: i, index: _ } => params.curve_1_hash_init + proof_1_vcs.C()[i],
           _ => panic!("branch wasn't present in a vector commitment"),
@@ -794,37 +838,48 @@ where
         })
       };
       // TODO: Batch verify this
-      // TODO: unwrap -> Result
       match (claimed_root, tree) {
         (TreeRoot::C1(claimed), TreeRoot::C1(actual)) => {
           let mut R = <<C::C1 as Ciphersuite>::G as GroupEncoding>::Repr::default();
           R.as_mut().copy_from_slice(&self.root_blind_pok[.. 32]);
-          let R = <C::C1 as Ciphersuite>::G::from_bytes(&R).unwrap();
+          let R =
+            Option::<<C::C1 as Ciphersuite>::G>::from(<C::C1 as Ciphersuite>::G::from_bytes(&R))
+              .ok_or(())?;
 
           let mut s = <<C::C1 as Ciphersuite>::F as PrimeField>::Repr::default();
           s.as_mut().copy_from_slice(&self.root_blind_pok[32 ..]);
-          let s = <C::C1 as Ciphersuite>::F::from_repr(s).unwrap();
+          let s =
+            Option::<<C::C1 as Ciphersuite>::F>::from(<C::C1 as Ciphersuite>::F::from_repr(s))
+              .ok_or(())?;
 
           let c: <C::C1 as Ciphersuite>::F = transcript.challenge();
 
           // R + cX == sH, where X is the difference in the roots
           // (which should only be the randomness, and H is the generator for the randomness)
-          assert_eq!(R + (claimed - actual) * c, params.curve_1_generators.h() * s);
+          if (R + (claimed - actual) * c) != (params.curve_1_generators.h() * s) {
+            Err(())?;
+          }
         }
         (TreeRoot::C2(claimed), TreeRoot::C2(actual)) => {
           let mut R = <<C::C2 as Ciphersuite>::G as GroupEncoding>::Repr::default();
           R.as_mut().copy_from_slice(&self.root_blind_pok[.. 32]);
-          let R = <C::C2 as Ciphersuite>::G::from_bytes(&R).unwrap();
+          let R =
+            Option::<<C::C2 as Ciphersuite>::G>::from(<C::C2 as Ciphersuite>::G::from_bytes(&R))
+              .ok_or(())?;
 
           let mut s = <<C::C2 as Ciphersuite>::F as PrimeField>::Repr::default();
           s.as_mut().copy_from_slice(&self.root_blind_pok[32 ..]);
-          let s = <C::C2 as Ciphersuite>::F::from_repr(s).unwrap();
+          let s =
+            Option::<<C::C2 as Ciphersuite>::F>::from(<C::C2 as Ciphersuite>::F::from_repr(s))
+              .ok_or(())?;
 
           let c: <C::C2 as Ciphersuite>::F = transcript.challenge();
 
           // R + cX == sH, where X is the difference in the roots
           // (which should only be the randomness, and H is the generator for the randomness)
-          assert_eq!(R + ((claimed - actual) * c), params.curve_2_generators.h() * s);
+          if (R + ((claimed - actual) * c)) != (params.curve_2_generators.h() * s) {
+            Err(())?;
+          }
         }
         _ => panic!("claimed root is on a distinct layer than tree root"),
       }
@@ -848,7 +903,7 @@ where
     for (input, opening) in inputs.iter().zip(input_openings) {
       Self::input(
         params,
-        layer_lens.len(),
+        layers,
         &mut transcript,
         &mut c1_circuit,
         &mut c1_dlog_challenge,
@@ -861,25 +916,26 @@ where
         &mut c2_commitments,
         input,
         opening,
-      );
+      )?;
     }
 
     // Escape to the raw weights to form a GBP with
-    assert!(c1_circuit.muls() <= c1_padded_pow_2);
-    assert!(c2_circuit.muls() <= c2_padded_pow_2);
+    debug_assert!(c1_circuit.muls() <= c1_padded_pow_2);
+    debug_assert!(c2_circuit.muls() <= c2_padded_pow_2);
     // dbg!(c1_circuit.muls());
     // dbg!(c2_circuit.muls());
 
-    // TODO: unwrap -> Result
     let (c1_statement, _witness) = c1_circuit
-      .statement(params.curve_1_generators.reduce(c1_padded_pow_2).unwrap(), proof_1_vcs)
-      .unwrap();
-    c1_statement.verify(rng, verifier_1, &mut transcript).unwrap();
+      .statement(params.curve_1_generators.reduce(c1_padded_pow_2).ok_or(())?, proof_1_vcs)
+      .map_err(|_| ())?;
+    c1_statement.verify(rng, verifier_1, &mut transcript).map_err(|_| ())?;
 
     let (c2_statement, _witness) = c2_circuit
-      .statement(params.curve_2_generators.reduce(c2_padded_pow_2).unwrap(), proof_2_vcs)
-      .unwrap();
-    c2_statement.verify(rng, verifier_2, &mut transcript).unwrap();
+      .statement(params.curve_2_generators.reduce(c2_padded_pow_2).ok_or(())?, proof_2_vcs)
+      .map_err(|_| ())?;
+    c2_statement.verify(rng, verifier_2, &mut transcript).map_err(|_| ())?;
+
+    Ok(())
   }
 
   pub fn read(reader: &mut impl io::Read, inputs: usize, layers: usize) -> io::Result<Self> {
