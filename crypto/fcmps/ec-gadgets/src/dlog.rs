@@ -101,8 +101,6 @@ pub struct Divisor<Parameters: DiscreteLogParameters> {
   /// exceeding trivial complexity.
   pub y: Variable,
   /// The coefficients for the `y**1 x**i` terms of the polynomial.
-  // This subtraction enforces the divisor to have at least 4 points which is acceptable.
-  // TODO: Double check these constants
   pub yx: GenericArray<Variable, Parameters::YxCoefficients>,
   /// The coefficients for the `x**i` terms of the polynomial, skipping x**1.
   ///
@@ -353,7 +351,9 @@ impl<C: Ciphersuite> EcDlogGadgets<C> for Circuit<C> {
     generators: &[&GeneratorTable<C::F, Parameters>],
   ) -> (DiscreteLogChallenge<C::F, Parameters>, Vec<ChallengedGenerator<C::F, Parameters>>) {
     // Get the challenge points
-    // TODO: Implement a proper hash to curve
+    let sign_of_points = transcript.challenge_bytes();
+    let sign_of_point_0 = (sign_of_points[0] & 1) == 1;
+    let sign_of_point_1 = ((sign_of_points[0] >> 1) & 1) == 1;
     let (c0_x, c0_y) = loop {
       let c0_x: C::F = transcript.challenge();
       let Some(c0_y) =
@@ -363,8 +363,7 @@ impl<C: Ciphersuite> EcDlogGadgets<C> for Circuit<C> {
       };
       // Takes the even y coordinate as to not be dependent on whatever root the above sqrt
       // happens to returns
-      // TODO: Randomly select which to take
-      break (c0_x, if bool::from(c0_y.is_odd()) { -c0_y } else { c0_y });
+      break (c0_x, if bool::from(c0_y.is_odd()) != sign_of_point_0 { -c0_y } else { c0_y });
     };
     let (c1_x, c1_y) = loop {
       let c1_x: C::F = transcript.challenge();
@@ -373,7 +372,7 @@ impl<C: Ciphersuite> EcDlogGadgets<C> for Circuit<C> {
       else {
         continue;
       };
-      break (c1_x, if bool::from(c1_y.is_odd()) { -c1_y } else { c1_y });
+      break (c1_x, if bool::from(c1_y.is_odd()) != sign_of_point_1 { -c1_y } else { c1_y });
     };
 
     // mmadd-1998-cmo

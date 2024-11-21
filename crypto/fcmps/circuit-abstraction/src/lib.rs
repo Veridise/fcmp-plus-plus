@@ -27,15 +27,27 @@ pub trait Transcript {
   /// It is the caller's responsibility to have properly transcripted all variables prior to
   /// sampling this challenge.
   fn challenge<F: PrimeField>(&mut self) -> F;
+
+  /// Sample a challenge as a byte array.
+  ///
+  /// It is the caller's responsibility to have properly transcripted all variables prior to
+  /// sampling this challenge.
+  fn challenge_bytes(&mut self) -> [u8; 64];
 }
 impl Transcript for ProverTranscript {
   fn challenge<F: PrimeField>(&mut self) -> F {
     self.challenge()
   }
+  fn challenge_bytes(&mut self) -> [u8; 64] {
+    self.challenge_bytes()
+  }
 }
 impl Transcript for VerifierTranscript<'_> {
   fn challenge<F: PrimeField>(&mut self) -> F {
     self.challenge()
+  }
+  fn challenge_bytes(&mut self) -> [u8; 64] {
+    self.challenge_bytes()
   }
 }
 

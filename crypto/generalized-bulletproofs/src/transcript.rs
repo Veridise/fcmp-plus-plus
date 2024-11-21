@@ -114,6 +114,12 @@ impl Transcript {
     challenge(&mut self.digest)
   }
 
+  /// Sample a challenge as a byte array.
+  pub fn challenge_bytes(&mut self) -> [u8; 64] {
+    self.digest.update([CHALLENGE]);
+    self.digest.clone().finalize().into()
+  }
+
   /// Complete a transcript, yielding the fully serialized proof.
   pub fn complete(self) -> Vec<u8> {
     self.transcript
@@ -175,5 +181,11 @@ impl<'a> VerifierTranscript<'a> {
   /// Sample a challenge.
   pub fn challenge<F: PrimeField>(&mut self) -> F {
     challenge(&mut self.digest)
+  }
+
+  /// Sample a challenge as a byte array.
+  pub fn challenge_bytes(&mut self) -> [u8; 64] {
+    self.digest.update([CHALLENGE]);
+    self.digest.clone().finalize().into()
   }
 }
