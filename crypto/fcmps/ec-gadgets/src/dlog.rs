@@ -478,7 +478,7 @@ impl<C: Ciphersuite> EcDlogGadgets<C> for Circuit<C> {
     let arg_iter = arg_iter.chain(dlog.iter());
     for variable in arg_iter {
       debug_assert!(
-        matches!(variable, Variable::CG { .. } | Variable::CH { .. } | Variable::V(_)),
+        matches!(variable, Variable::CG { .. } | Variable::V(_)),
         "discrete log proofs requires all arguments belong to commitments",
       );
     }

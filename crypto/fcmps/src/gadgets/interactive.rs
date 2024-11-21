@@ -14,7 +14,7 @@ impl<C: Ciphersuite> Circuit<C> {
     // Ensure this is being safely called
     for variable in member.iter().chain(list.iter().flatten()) {
       assert!(
-        matches!(variable, Variable::CG { .. }) || matches!(variable, Variable::CH { .. }),
+        matches!(variable, Variable::CG { .. }),
         "tuple member of set requires all arguments belong to vector commitments"
       );
     }

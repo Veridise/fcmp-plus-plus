@@ -297,8 +297,6 @@ impl<C: Ciphersuite> PedersenCommitment<C> {
 pub struct PedersenVectorCommitment<C: Ciphersuite> {
   /// The values committed to across the `g` (bold) generators.
   pub g_values: ScalarVector<C::F>,
-  /// The values committed to across the `h` (bold) generators.
-  pub h_values: ScalarVector<C::F>,
   /// The mask blinding the values committed to.
   pub mask: C::F,
 }
@@ -308,16 +306,13 @@ impl<C: Ciphersuite> PedersenVectorCommitment<C> {
   ///
   /// This function returns None if the amount of generators is less than the amount of values
   /// within the relevant vector.
-  pub fn commit(&self, g_bold: &[C::G], h_bold: &[C::G], h: C::G) -> Option<C::G> {
-    if (g_bold.len() < self.g_values.len()) || (h_bold.len() < self.h_values.len()) {
+  pub fn commit(&self, g_bold: &[C::G], h: C::G) -> Option<C::G> {
+    if g_bold.len() < self.g_values.len() {
       None?;
     };
 
     let mut terms = vec![(self.mask, h)];
     for pair in self.g_values.0.iter().cloned().zip(g_bold.iter().cloned()) {
-      terms.push(pair);
-    }
-    for pair in self.h_values.0.iter().cloned().zip(h_bold.iter().cloned()) {
       terms.push(pair);
     }
     let res = multiexp(&terms);

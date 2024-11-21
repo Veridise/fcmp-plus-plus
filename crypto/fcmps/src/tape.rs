@@ -13,13 +13,13 @@ use crate::{
   gadgets::{DiscreteLogParameters, Divisor, PointWithDlog},
 };
 
-const COMMITMENT_WORD_LEN: usize = 256;
+const COMMITMENT_WORD_LEN: usize = 128;
 
 /// The variables used for elements in Vector Commitments.
 pub(crate) struct VectorCommitmentTape<F: Zeroize + PrimeFieldBits> {
   pub(crate) commitment_len: usize,
   pub(crate) current_j_offset: usize,
-  pub(crate) commitments: Vec<(Vec<F>, Vec<F>)>,
+  pub(crate) commitments: Vec<Vec<F>>,
 }
 
 impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
@@ -31,28 +31,19 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     }
 
     #[allow(clippy::unwrap_or_default)]
-    let variables = variables
-      .map(|mut variables| {
-        let h_bold = variables.split_off(COMMITMENT_WORD_LEN / 2);
-        let g_bold = variables;
-        (g_bold, h_bold)
-      })
-      .unwrap_or((vec![], vec![]));
+    let variables = variables.unwrap_or(vec![]);
 
     if self.current_j_offset == 0 {
       self.commitments.push(variables);
     } else {
       let commitment = self.commitments.last_mut().unwrap();
-      commitment.0.extend(variables.0);
-      commitment.1.extend(variables.1);
+      commitment.extend(variables);
     };
     let i = self.commitments.len() - 1;
-    let j_range = self.current_j_offset .. (self.current_j_offset + COMMITMENT_WORD_LEN / 2);
-    let left = j_range.clone().map(|j| Variable::CG { commitment: i, index: j });
-    let right = j_range.map(|j| Variable::CH { commitment: i, index: j });
-    let res = left.chain(right).collect();
+    let j_range = self.current_j_offset .. (self.current_j_offset + COMMITMENT_WORD_LEN);
+    let res = j_range.map(|j| Variable::CG { commitment: i, index: j }).collect();
 
-    self.current_j_offset += COMMITMENT_WORD_LEN / 2;
+    self.current_j_offset += COMMITMENT_WORD_LEN;
     if self.current_j_offset == self.commitment_len {
       self.current_j_offset = 0;
     }
@@ -87,7 +78,7 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
     let mut branch = self.append(branch);
 
     // Append empty dummies so this hash doesn't have more variables added
-    for _ in 1 .. ((2 * self.commitment_len) / COMMITMENT_WORD_LEN) {
+    for _ in 1 .. (self.commitment_len / COMMITMENT_WORD_LEN) {
       self.append(empty.clone());
     }
     branch.truncate(branch_len);
@@ -128,7 +119,16 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
       witness
     });
 
-    let mut variables = self.append(witness);
+    let (witness_a, witness_b) = witness
+      .map(|mut witness| {
+        debug_assert_eq!(witness.len(), 2 * COMMITMENT_WORD_LEN);
+        let witness_b = witness.split_off(COMMITMENT_WORD_LEN);
+        (Some(witness), Some(witness_b))
+      })
+      .unwrap_or((None, None));
+    let mut variables = self.append(witness_a);
+    variables.append(&mut self.append(witness_b));
+
     let extra = variables.pop().unwrap();
     let padding = variables.drain(dlog_bits .. 255).collect::<Vec<_>>();
     let dlog = GenericArray::from_slice(&variables).clone();
@@ -178,7 +178,16 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
       witness
     });
 
-    let mut variables = self.append(witness);
+    let (witness_a, witness_b) = witness
+      .map(|mut witness| {
+        debug_assert_eq!(witness.len(), 2 * COMMITMENT_WORD_LEN);
+        let witness_b = witness.split_off(COMMITMENT_WORD_LEN);
+        (Some(witness), Some(witness_b))
+      })
+      .unwrap_or((None, None));
+    let mut variables = self.append(witness_a);
+    variables.append(&mut self.append(witness_b));
+
     let extra = variables.pop().unwrap();
 
     let mut cursor_start = 1;
@@ -218,13 +227,9 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
 
     let mut res = vec![];
     for (values, blind) in self.commitments.iter().zip(blinds) {
-      let g_generators = generators.g_bold_slice()[.. values.0.len()].iter().cloned();
-      let h_generators = generators.h_bold_slice()[.. values.1.len()].iter().cloned();
-      let mut commitment = g_generators
-        .enumerate()
-        .map(|(i, g)| (values.0[i], g))
-        .chain(h_generators.enumerate().map(|(i, h)| (values.1[i], h)))
-        .collect::<Vec<_>>();
+      let g_generators = generators.g_bold_slice()[.. values.len()].iter().cloned();
+      let mut commitment =
+        g_generators.enumerate().map(|(i, g)| (values[i], g)).collect::<Vec<_>>();
       commitment.push((*blind, generators.h()));
       res.push(multiexp(&commitment));
     }

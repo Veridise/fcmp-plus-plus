@@ -85,7 +85,7 @@ impl<C: Ciphersuite> Circuit<C> {
 
   /// Evaluate a linear combination.
   ///
-  /// Yields WL aL + WR aR + WO aO + WCG CG + WCH CH + WV V + c.
+  /// Yields WL aL + WR aR + WO aO + WCG CG + WV V + c.
   ///
   /// May panic if the linear combination references non-existent terms.
   ///
@@ -105,11 +105,6 @@ impl<C: Ciphersuite> Circuit<C> {
       for (WCG, C) in lincomb.WCG().iter().zip(&prover.C) {
         for (j, weight) in WCG {
           res += C.g_values[*j] * weight;
-        }
-      }
-      for (WCH, C) in lincomb.WCH().iter().zip(&prover.C) {
-        for (j, weight) in WCH {
-          res += C.h_values[*j] * weight;
         }
       }
       for (index, weight) in lincomb.WV() {

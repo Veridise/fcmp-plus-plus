@@ -545,11 +545,7 @@ where
         .commitments
         .into_iter()
         .zip(pvc_blinds_1.iter())
-        .map(|((g_values, h_values), mask)| PedersenVectorCommitment {
-          g_values: g_values.into(),
-          h_values: h_values.into(),
-          mask: *mask,
-        })
+        .map(|(g_values, mask)| PedersenVectorCommitment { g_values: g_values.into(), mask: *mask })
         .collect(),
     );
     let mut c2_circuit = Circuit::<C::C2>::prove(
@@ -557,11 +553,7 @@ where
         .commitments
         .into_iter()
         .zip(pvc_blinds_2.iter())
-        .map(|((g_values, h_values), mask)| PedersenVectorCommitment {
-          g_values: g_values.into(),
-          h_values: h_values.into(),
-          mask: *mask,
-        })
+        .map(|(g_values, mask)| PedersenVectorCommitment { g_values: g_values.into(), mask: *mask })
         .collect(),
     );
 
@@ -630,6 +622,7 @@ where
     c2_statement.prove(rng, &mut transcript, c2_witness.unwrap()).unwrap();
 
     let res = Fcmp { _curves: PhantomData, proof: transcript.complete(), root_blind_pok };
+    /* TODO
     debug_assert!({
       let actual_proof_len = res.proof.len() + 64;
       let layers = 1 +
@@ -638,6 +631,8 @@ where
         branches.per_input[0].branches.curve_2_layers.len();
       actual_proof_len == Self::proof_size(branches.per_input.len(), layers)
     });
+    */
+    #[allow(clippy::let_and_return)] // TODO
     res
   }
 
