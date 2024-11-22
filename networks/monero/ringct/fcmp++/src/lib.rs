@@ -311,8 +311,12 @@ impl SpendAuthAndLinkability {
     let P__randomness = Zeroizing::new(*r_p - opening.y - opening.r_j);
     // This transcript the generator matrix, the outputs, and its nonces
     // The matrix/output transcripting is partially redundant
-    let ([O_tilde_calc, P__calc, L_calc], gsp) =
-      GeneralizedSchnorr::prove(rng, &mut transcript, matrix, [&x, &y, &x_r_i, &P__randomness]);
+    let ([O_tilde_calc, P__calc, L_calc], gsp) = GeneralizedSchnorr::prove(
+      rng,
+      transcript.challenge(b"gsp")[.. 32].try_into().unwrap(),
+      matrix,
+      [&x, &y, &x_r_i, &P__randomness],
+    );
     debug_assert_eq!(opening.input.O_tilde, O_tilde_calc);
     debug_assert_eq!(P_, P__calc);
     debug_assert_eq!(L, L_calc);

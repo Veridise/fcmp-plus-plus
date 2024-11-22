@@ -42,13 +42,13 @@ fn mpc_test() {
   let algorithm =
     GeneralizedSchnorr::<Ed25519, OUTPUTS, SCALARS, SCALARS_PLUS_TWO>::multiparty_prove(
       RecommendedTranscript::new(b"Generalized Schnorr MPC Test"),
-      RecommendedTranscript::new(b"Generalized Schnorr MPC Proof Test"),
+      [0xff; 32],
       matrix,
       [None, Some(other_scalar)],
     )
     .unwrap();
 
-  let (outputs, _, proof) = sign(
+  let (outputs, proof) = sign(
     &mut OsRng,
     &algorithm,
     keys.clone(),
@@ -56,9 +56,5 @@ fn mpc_test() {
     &[],
   );
 
-  assert!(proof.verify(
-    &mut RecommendedTranscript::new(b"Generalized Schnorr MPC Proof Test"),
-    matrix,
-    outputs
-  ));
+  assert!(proof.verify([0xff; 32], matrix, outputs));
 }

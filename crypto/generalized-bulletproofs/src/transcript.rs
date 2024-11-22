@@ -14,6 +14,9 @@ const POINT: u8 = 1;
 const CHALLENGE: u8 = 2;
 
 fn challenge<F: PrimeField>(digest: &mut Blake2b512) -> F {
+  // Ensure this field is small enough this is a successful wide reduction
+  assert!(F::NUM_BITS <= (512 - 128));
+
   digest.update([CHALLENGE]);
   let chl = digest.clone().finalize();
 

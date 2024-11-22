@@ -46,7 +46,7 @@ pub struct GeneralizedSchnorrAlgorithm<
   const SCALARS_PLUS_TWO: usize,
 > {
   mpc_transcript: T,
-  proof_transcript: T,
+  proof_context: [u8; 32],
   matrix: [[C::G; SCALARS]; OUTPUTS],
   scalars: [Option<Zeroizing<C::F>>; SCALARS],
   output_shares: HashMap<Vec<u8>, [C::G; OUTPUTS]>,
@@ -65,7 +65,7 @@ impl<
 {
   type Transcript = T;
   type Addendum = OutputShare<C, OUTPUTS>;
-  type Signature = ([C::G; OUTPUTS], T, GeneralizedSchnorr<C, OUTPUTS, SCALARS, SCALARS_PLUS_TWO>);
+  type Signature = ([C::G; OUTPUTS], GeneralizedSchnorr<C, OUTPUTS, SCALARS, SCALARS_PLUS_TWO>);
 
   fn transcript(&mut self) -> &mut Self::Transcript {
     &mut self.mpc_transcript
@@ -144,7 +144,8 @@ impl<
       .try_into()
       .expect("didn't generate as many representations of the nonce as outputs");
 
-    // Deterministically derive nonces for the rest of the scalars
+    // Deterministically derive nonces for the rest of the scalars (assumed public to anyone with
+    // the transcript)
     let mut deterministic_nonces: [C::F; SCALARS] = core::array::from_fn(|_| {
       <C as Ciphersuite>::hash_to_F(
         b"generalized_schnorr-mpc-nonce",
@@ -168,8 +169,7 @@ impl<
     self.R = Some(R);
 
     let c = GeneralizedSchnorr::<C, OUTPUTS, SCALARS, SCALARS_PLUS_TWO>::challenge(
-      &mut self.proof_transcript.clone(),
-      self.matrix,
+      self.proof_context,
       self.outputs.expect("didn't process any addendums"),
       R,
     );
@@ -206,9 +206,8 @@ impl<
 
     let outputs = self.outputs.unwrap();
     let sig = GeneralizedSchnorr { R, s };
-    let mut transcript = self.proof_transcript.clone();
-    if sig.verify(&mut transcript, self.matrix, outputs) {
-      return Some((outputs, transcript, sig));
+    if sig.verify(self.proof_context, self.matrix, outputs) {
+      return Some((outputs, sig));
     }
     None
   }
@@ -267,8 +266,8 @@ impl<C: Curve, const OUTPUTS: usize, const SCALARS: usize, const SCALARS_PLUS_TW
   ///
   /// Returns None if there isn't exactly one scalar in the witness is missing.
   pub fn multiparty_prove<T: Sync + Clone + PartialEq + Debug + Transcript>(
-    mpc_transcript: T,
-    proof_transcript: T,
+    mut mpc_transcript: T,
+    proof_context: [u8; 32],
     matrix: [[C::G; SCALARS]; OUTPUTS],
     scalars: [Option<Zeroizing<C::F>>; SCALARS],
   ) -> Option<GeneralizedSchnorrAlgorithm<C, T, OUTPUTS, SCALARS, SCALARS_PLUS_TWO>> {
@@ -276,9 +275,12 @@ impl<C: Curve, const OUTPUTS: usize, const SCALARS: usize, const SCALARS_PLUS_TW
       None?;
     }
 
+    mpc_transcript.domain_separate(b"generalized_schnorr-mpc");
+    mpc_transcript.append_message(b"proof_context", proof_context);
+
     Some(GeneralizedSchnorrAlgorithm {
       mpc_transcript,
-      proof_transcript,
+      proof_context,
       matrix,
       scalars,
       output_shares: HashMap::new(),

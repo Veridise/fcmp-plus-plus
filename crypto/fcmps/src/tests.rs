@@ -642,3 +642,5 @@ fn verify_benchmark() {
   verify_fn(100, 10, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
   verify_fn(100, 100, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
 }
+
+// TODO: Add a test to prove a proof, then malleate every single byte and verify it fails
