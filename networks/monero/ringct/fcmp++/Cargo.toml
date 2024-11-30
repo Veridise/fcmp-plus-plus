@@ -39,6 +39,15 @@ monero-io = { path = "../../io", default-features = false }
 monero-generators = { path = "../../generators", default-features = false }
 monero-primitives = { path = "../../primitives", default-features = false }
 
+rand_chacha = { version = "0.3", default-features = false, optional = true }
+transcript = { package = "flexible-transcript", path = "../../../../crypto/transcript", default-features = false, optional = true }
+modular-frost = { path = "../../../../crypto/frost", default-features = false, features = ["ed25519"], optional = true }
+
+[dev-dependencies]
+rand_chacha = { version = "0.3", default-features = false }
+transcript = { package = "flexible-transcript", path = "../../../../crypto/transcript", default-features = false, features = ["recommended"] }
+modular-frost = { path = "../../../../crypto/frost", default-features = false, features = ["ed25519", "tests"] }
+
 [features]
 std = [
   "std-shims/std",
@@ -60,5 +69,9 @@ std = [
   "monero-io/std",
   "monero-generators/std",
   "monero-primitives/std",
+
+  "rand_chacha?/std",
+  "transcript?/std",
 ]
+multisig = ["std", "transcript", "modular-frost"]
 default = ["std"]

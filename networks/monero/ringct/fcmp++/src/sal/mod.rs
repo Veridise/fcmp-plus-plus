@@ -19,6 +19,10 @@ use monero_generators::{T, FCMP_U, FCMP_V};
 
 use crate::{Input, Output};
 
+/// A multisignature algorithm for a secret-shared `y`, supporting outgoing view keys.
+#[cfg(all(feature = "std", feature = "multisig"))]
+pub mod multisig;
+
 /// A re-randomized output.
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct RerandomizedOutput {
@@ -27,6 +31,12 @@ pub struct RerandomizedOutput {
   r_i: <Ed25519 as Ciphersuite>::F,
   r_r_i: <Ed25519 as Ciphersuite>::F,
   r_c: <Ed25519 as Ciphersuite>::F,
+}
+
+impl core::fmt::Debug for RerandomizedOutput {
+  fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+    fmt.debug_struct("RerandomizedOutput").field("input", &self.input).finish_non_exhaustive()
+  }
 }
 
 impl RerandomizedOutput {
@@ -72,6 +82,8 @@ impl RerandomizedOutput {
   // The FCMP code expects these as used in the proof, which adds these blinds to the blinded
   // values to recover the original values (requiring their negation)
   /// The scalar to use with `OBlind::new`.
+  ///
+  /// This is the additive inverse of the re-randomization applied to the `y T` term.
   pub fn o_blind(&self) -> <Ed25519 as Ciphersuite>::F {
     -self.r_o
   }
@@ -155,6 +167,33 @@ pub struct SpendAuthAndLinkability {
 }
 
 impl SpendAuthAndLinkability {
+  #[allow(clippy::too_many_arguments)]
+  fn challenge(
+    signable_tx_hash: [u8; 32],
+    input: &Input,
+    L: EdwardsPoint,
+    P: EdwardsPoint,
+    A: EdwardsPoint,
+    B: EdwardsPoint,
+    R_O: EdwardsPoint,
+    R_P: EdwardsPoint,
+    R_L: EdwardsPoint,
+  ) -> Scalar {
+    let mut transcript = Blake2b512::new();
+
+    transcript.update(signable_tx_hash);
+    input.transcript(&mut transcript, L);
+
+    transcript.update(P.to_bytes());
+    transcript.update(A.to_bytes());
+    transcript.update(B.to_bytes());
+    transcript.update(R_O.to_bytes());
+    transcript.update(R_P.to_bytes());
+    transcript.update(R_L.to_bytes());
+
+    Scalar(DalekScalar::from_hash(transcript.clone()))
+  }
+
   /// Prove a Spend-Authorization and Linkability proof.
   pub fn prove(
     rng: &mut (impl RngCore + CryptoRng),
@@ -167,10 +206,6 @@ impl SpendAuthAndLinkability {
     let V = EdwardsPoint(FCMP_V());
 
     let L = (opening.input.I_tilde * opening.x) - (U * (opening.r_i * opening.x));
-
-    let mut transcript = Blake2b512::new();
-    transcript.update(signable_tx_hash);
-    opening.input.transcript(&mut transcript, L);
 
     let alpha = Zeroizing::new(<Ed25519 as Ciphersuite>::F::random(&mut *rng));
     let beta = Zeroizing::new(<Ed25519 as Ciphersuite>::F::random(&mut *rng));
@@ -195,14 +230,7 @@ impl SpendAuthAndLinkability {
     let R_P = (U * *r_z) + (T * *r_r_p);
     let R_L = (opening.input.I_tilde * *alpha) - (U * *r_z);
 
-    transcript.update(P.to_bytes());
-    transcript.update(A.to_bytes());
-    transcript.update(B.to_bytes());
-    transcript.update(R_O.to_bytes());
-    transcript.update(R_P.to_bytes());
-    transcript.update(R_L.to_bytes());
-
-    let e = Scalar(DalekScalar::from_hash(transcript.clone()));
+    let e = Self::challenge(signable_tx_hash, &opening.input, L, P, A, B, R_O, R_P, R_L);
 
     let s_alpha = *alpha + (e * opening.x);
     let s_beta = *beta + (e * opening.r_i);
@@ -235,18 +263,17 @@ impl SpendAuthAndLinkability {
     let U = EdwardsPoint(FCMP_U());
     let V = EdwardsPoint(FCMP_V());
 
-    let mut transcript = Blake2b512::new();
-    transcript.update(signable_tx_hash);
-    input.transcript(&mut transcript, L);
-
-    transcript.update(self.P.to_bytes());
-    transcript.update(self.A.to_bytes());
-    transcript.update(self.B.to_bytes());
-    transcript.update(self.R_O.to_bytes());
-    transcript.update(self.R_P.to_bytes());
-    transcript.update(self.R_L.to_bytes());
-
-    let e = Scalar(DalekScalar::from_hash(transcript.clone()));
+    let e = Self::challenge(
+      signable_tx_hash,
+      input,
+      L,
+      self.P,
+      self.A,
+      self.B,
+      self.R_O,
+      self.R_P,
+      self.R_L,
+    );
 
     // BP+ Verification Statement
     verifier.queue(

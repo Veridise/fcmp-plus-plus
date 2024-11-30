@@ -8,6 +8,9 @@ use monero_generators::T;
 
 use crate::{Output, sal::*};
 
+#[cfg(feature = "multisig")]
+mod multisig;
+
 #[test]
 fn test_sal() {
   let x = Scalar::random(&mut OsRng);
