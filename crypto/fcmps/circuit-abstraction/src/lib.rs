@@ -76,7 +76,6 @@ impl<C: Ciphersuite> Circuit<C> {
   }
 
   /// Create an instance to prove satisfaction of a circuit with.
-  // TODO: Take the transcript here
   #[allow(clippy::type_complexity)]
   pub fn prove(
     vector_commitments: Vec<PedersenVectorCommitment<C>>,
@@ -90,7 +89,6 @@ impl<C: Ciphersuite> Circuit<C> {
   }
 
   /// Create an instance to verify a proof with.
-  // TODO: Take the transcript here
   pub fn verify() -> Self {
     Self { muls: 0, constraints: vec![], prover: None }
   }

@@ -847,7 +847,6 @@ where
           _ => panic!("branch wasn't present in a vector commitment"),
         })
       };
-      // TODO: Batch verify this
       match (claimed_root, tree) {
         (TreeRoot::C1(claimed), TreeRoot::C1(actual)) => {
           let mut R = <<C::C1 as Ciphersuite>::G as GroupEncoding>::Repr::default();
@@ -866,9 +865,10 @@ where
 
           // R + cX == sH, where X is the difference in the roots
           // (which should only be the randomness, and H is the generator for the randomness)
-          if (R + (claimed - actual) * c) != (params.curve_1_generators.h() * s) {
-            Err(())?;
-          }
+          let batch_verifier_weight = <C::C1 as Ciphersuite>::F::random(&mut *rng);
+          verifier_1.additional.push((batch_verifier_weight, R));
+          verifier_1.additional.push((batch_verifier_weight * c, claimed - actual));
+          verifier_1.h -= s * batch_verifier_weight;
         }
         (TreeRoot::C2(claimed), TreeRoot::C2(actual)) => {
           let mut R = <<C::C2 as Ciphersuite>::G as GroupEncoding>::Repr::default();
@@ -887,9 +887,10 @@ where
 
           // R + cX == sH, where X is the difference in the roots
           // (which should only be the randomness, and H is the generator for the randomness)
-          if (R + ((claimed - actual) * c)) != (params.curve_2_generators.h() * s) {
-            Err(())?;
-          }
+          let batch_verifier_weight = <C::C2 as Ciphersuite>::F::random(&mut *rng);
+          verifier_2.additional.push((batch_verifier_weight, R));
+          verifier_2.additional.push((batch_verifier_weight * c, claimed - actual));
+          verifier_2.h -= s * batch_verifier_weight;
         }
         _ => panic!("claimed root is on a distinct layer than tree root"),
       }

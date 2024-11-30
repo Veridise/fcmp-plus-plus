@@ -551,6 +551,8 @@ fn test_single_input() {
 fn test_multiple_inputs() {
   let (G, T, U, V, params) = random_params(8);
 
+  let mut all_proofs = vec![];
+
   for paths in 2 ..= 4 {
     // This is less than target layers yet still tests a C1 root and a C2 root
     for layers in 1 ..= 4 {
@@ -572,51 +574,117 @@ fn test_multiple_inputs() {
 
       let proof =
         Fcmp::prove(&mut OsRng, &params, blind_branches(&params, branches, output_blinds)).unwrap();
+      all_proofs.push((root, layers, inputs.clone(), proof.clone()));
 
       verify_fn(1, 1, proof, &params, root, layers, &inputs);
     }
   }
 
-  // TODO: Batch verify all of these proofs
+  // Test batch verification of all of these proofs
+  let mut verifier_1 = generalized_bulletproofs::Generators::batch_verifier();
+  let mut verifier_2 = generalized_bulletproofs::Generators::batch_verifier();
+
+  for (root, layers, inputs, proof) in all_proofs {
+    proof
+      .verify(&mut OsRng, &mut verifier_1, &mut verifier_2, &params, root, layers, &inputs)
+      .unwrap();
+  }
+  assert!(params.curve_1_generators.verify(verifier_1));
+  assert!(params.curve_2_generators.verify(verifier_2));
+}
+
+#[test]
+fn test_malleated_proofs() {
+  let (G, T, U, V, params) = random_params(2);
+
+  for paths in [1, 2] {
+    for layers in [1, 2] {
+      let (paths, root) = random_paths(&params, layers, paths);
+
+      let mut output_blinds = vec![];
+      for _ in 0 .. paths.len() {
+        output_blinds.push(random_output_blinds(G, T, U, V));
+      }
+
+      let mut inputs = vec![];
+      for (path, output_blinds) in paths.iter().zip(&output_blinds) {
+        inputs.push(output_blinds.blind(&path.output).unwrap());
+      }
+
+      let branches = Branches::new(paths.clone()).unwrap();
+
+      let mut buf = vec![];
+      {
+        let proof =
+          Fcmp::prove(&mut OsRng, &params, blind_branches(&params, branches, output_blinds))
+            .unwrap();
+        proof.write(&mut buf).unwrap();
+      }
+
+      for i in 0 .. buf.len() {
+        let mut buf = buf.clone();
+        let existing_byte = buf[i];
+        while buf[i] == existing_byte {
+          buf[i] = u8::try_from(OsRng.next_u64() & u64::from(u8::MAX)).unwrap();
+        }
+        if let Ok(proof) = Fcmp::read(&mut buf.as_slice(), paths.len(), layers) {
+          let mut verifier_1 = generalized_bulletproofs::Generators::batch_verifier();
+          let mut verifier_2 = generalized_bulletproofs::Generators::batch_verifier();
+
+          if proof
+            .verify(&mut OsRng, &mut verifier_1, &mut verifier_2, &params, root, layers, &inputs)
+            .is_ok()
+          {
+            let valid = params.curve_1_generators.verify(verifier_1) &&
+              params.curve_2_generators.verify(verifier_2);
+            assert!(!valid, "malleated proof yet still verified");
+          }
+        }
+      }
+    }
+  }
 }
 
 #[test]
 fn prove_benchmark() {
   const RUNS: usize = 10;
-  let inputs = 1; // TODO: Test with a variety of inputs
 
-  let (G, T, U, V, params) = random_params(inputs);
-  let (path, _root) = random_path(&params, TARGET_LAYERS);
+  let (G, T, U, V, params) = random_params(8);
 
-  let mut set_size = 1u64;
-  for i in 0 .. TARGET_LAYERS {
-    if i % 2 == 0 {
-      set_size *= u64::try_from(LAYER_ONE_LEN).unwrap();
-    } else {
-      set_size *= u64::try_from(LAYER_TWO_LEN).unwrap();
+  for paths in 1 ..= 8 {
+    let (paths, _root) = random_paths(&params, TARGET_LAYERS, paths);
+
+    let mut set_size = 1u64;
+    for i in 0 .. TARGET_LAYERS {
+      if i % 2 == 0 {
+        set_size *= u64::try_from(LAYER_ONE_LEN).unwrap();
+      } else {
+        set_size *= u64::try_from(LAYER_TWO_LEN).unwrap();
+      }
     }
+
+    let branches = Branches::new(paths.clone()).unwrap();
+
+    let prove_start = std::time::Instant::now();
+    for _ in 0 .. 10 {
+      let mut output_blinds = vec![];
+      for _ in 0 .. paths.len() {
+        output_blinds.push(random_output_blinds(G, T, U, V));
+      }
+
+      let proof =
+        Fcmp::prove(&mut OsRng, &params, blind_branches(&params, branches.clone(), output_blinds))
+          .unwrap();
+
+      core::hint::black_box(proof);
+    }
+    println!(
+      "Proving for {RUNS} {}-input FCMPs with a set size of {} took an average of {}ms each",
+      paths.len(),
+      set_size,
+      (std::time::Instant::now() - prove_start).as_millis() / u128::try_from(RUNS).unwrap()
+    );
   }
-
-  let branches = Branches::new(vec![path]).unwrap();
-
-  let prove_start = std::time::Instant::now();
-  for _ in 0 .. 10 {
-    let output_blinds = random_output_blinds(G, T, U, V);
-
-    let proof = Fcmp::prove(
-      &mut OsRng,
-      &params,
-      blind_branches(&params, branches.clone(), vec![output_blinds]),
-    )
-    .unwrap();
-
-    core::hint::black_box(proof);
-  }
-  println!(
-    "Proving for {RUNS} {inputs}-input FCMPs with a set size of {} took an average of {}ms each",
-    set_size,
-    (std::time::Instant::now() - prove_start).as_millis() / u128::try_from(RUNS).unwrap()
-  );
 }
 
 #[test]
@@ -642,8 +710,6 @@ fn verify_benchmark() {
   verify_fn(100, 10, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
   verify_fn(100, 100, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
 }
-
-// TODO: Add a test to prove a proof, then malleate every single byte and verify it fails
 
 #[test]
 fn proof_sizes() {

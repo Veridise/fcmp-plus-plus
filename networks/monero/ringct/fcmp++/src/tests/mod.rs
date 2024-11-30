@@ -84,11 +84,6 @@ fn test() {
       ),
     );
 
-    assert_eq!(
-      output_blinds.blind(&output).unwrap(),
-      fcmps::Input::new(input.O_tilde, input.I_tilde, input.R, input.C_tilde).unwrap()
-    );
-
     let blinded_branches = branches.blind(vec![output_blinds], vec![], vec![]).unwrap();
     (tree, Fcmp::prove(&mut OsRng, FCMP_PARAMS(), blinded_branches).unwrap())
   };

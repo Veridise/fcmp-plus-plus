@@ -69,14 +69,26 @@ pub struct Generators<C: Ciphersuite> {
 /// A batch verifier of proofs.
 #[must_use]
 pub struct BatchVerifier<C: Ciphersuite> {
-  g: C::F,
-  h: C::F,
+  /// The summed scalar for the G generator.
+  pub g: C::F,
+  /// The summed scalar for the G generator.
+  pub h: C::F,
 
-  g_bold: Vec<C::F>,
-  h_bold: Vec<C::F>,
-  h_sum: Vec<C::F>,
+  /// The summed scalars for the G_bold generators.
+  pub g_bold: Vec<C::F>,
+  /// The summed scalars for the H_bold generators.
+  pub h_bold: Vec<C::F>,
+  /// The summed scalars for the sums of all H generators prior to the index.
+  ///
+  /// This is not populated with the full set of summed H generators. This is only populated with
+  /// the powers of 2. Accordingly, an index i specifies a scalar for the sum of all H generators
+  /// from H**2**0 ..= H**2**i.
+  pub h_sum: Vec<C::F>,
 
-  additional: Vec<(C::F, C::G)>,
+  /// Additional (non-fixed) points to include in the multiexp.
+  ///
+  /// This is used for proof-specific elements.
+  pub additional: Vec<(C::F, C::G)>,
 }
 
 impl<C: Ciphersuite> fmt::Debug for Generators<C> {

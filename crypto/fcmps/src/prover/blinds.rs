@@ -165,8 +165,10 @@ where
   }
 
   /// Blind an output.
-  // TODO: Re-introduce BlindedOutput so this can consume these blinds?
-  pub fn blind(&self, output: &Output<G>) -> Option<Input<<G as DivisorCurve>::FieldElement>> {
+  pub(crate) fn blind(
+    &self,
+    output: &Output<G>,
+  ) -> Option<Input<<G as DivisorCurve>::FieldElement>> {
     // We add the proven results of the blinds to the input tuple to recalculate the output
     // tuple
     // In order for `input_tuple_value + blind_value = output_tuple_value`,
