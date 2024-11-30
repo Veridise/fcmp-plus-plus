@@ -40,7 +40,7 @@ monero-generators = { path = "../../generators", default-features = false }
 monero-primitives = { path = "../../primitives", default-features = false }
 
 rand_chacha = { version = "0.3", default-features = false, optional = true }
-transcript = { package = "flexible-transcript", path = "../../../../crypto/transcript", default-features = false, optional = true }
+transcript = { package = "flexible-transcript", path = "../../../../crypto/transcript", default-features = false, features = ["recommended"], optional = true }
 modular-frost = { path = "../../../../crypto/frost", default-features = false, features = ["ed25519"], optional = true }
 
 [dev-dependencies]

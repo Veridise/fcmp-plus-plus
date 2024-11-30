@@ -146,7 +146,7 @@ impl<
     nonces: Vec<Zeroizing<Scalar>>,
     msg: &[u8],
   ) -> Scalar {
-    assert!(msg.is_empty(), "SalAlgorithm essage wasn't empty");
+    assert!(msg.is_empty(), "SalAlgorithm message wasn't empty");
 
     let G = <Ed25519 as Ciphersuite>::G::generator();
     let T = EdwardsPoint(T());
@@ -193,13 +193,13 @@ impl<
         - `-s_y + (e * r_p) + (e * -r_r_i) == -r_y + (e * -y) + (e * r_p) + (e * -r_r_i)`
         - `-s_y + (e * (r_p - r_r_i)) == -r_y + (e * (r_p - y - r_r_i))`
 
-      If we set `r_r_p` to `-r_y`, then `s_r_p = s_y + (e * r_p)`. Since `s_y` is ZK to `y`, any
+      We can set `r_r_p` to `-r_y`, then `s_r_p = s_y + (e * r_p)`. Since `s_y` is ZK to `y`, any
       permutations off of it (which don't re-introduce `y`) must also be ZK to `y`. While
       `r_r_p = -r_y` would be nonce reuse (albeit with a different secret), we don't actually reuse
       `r_y`. We solely specify our commitment to `r_r_p` to be the additive inverse of our
-      commitment to `r_y` which is satisfactory for our purposes here. Reusing commitments isn't an
-      issue as the commitments are to uniformly sampled scalars in a group where the discrete-log
-      problem is assumed hard.
+      commitment to `r_y`, which is satisfactory for our purposes here. Reusing commitments isn't
+      an issue as the commitments are to uniformly sampled scalars in a group where the
+      discrete-log problem is assumed hard.
 
       It would be publicly observable that `r_r_p = -r_y`, so we further tweak the supposed
       commitment to `r_r_p` (the additive inverse of the commitment of `r_y`) by a
@@ -323,7 +323,7 @@ impl<
     rerandomized_output: RerandomizedOutput,
     x: Scalar,
   ) -> Self {
-    transcript.domain_separate(b"SpendAuthAndLinkability");
+    transcript.domain_separate(b"SpendAuthAndLinkability Multisig");
 
     transcript.append_message(b"signable_tx_hash", signable_tx_hash);
 
