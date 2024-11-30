@@ -27,6 +27,7 @@ use ec_divisors::DivisorCurve;
 use generalized_bulletproofs::{
   BatchVerifier, PedersenVectorCommitment,
   transcript::{Transcript as ProverTranscript, VerifierTranscript},
+  arithmetic_circuit_proof::AcError,
 };
 
 mod gadgets;
@@ -76,13 +77,11 @@ pub struct Output<G: Group> {
 
 impl<G: Group> Output<G> {
   /// Construct a new Output tuple.
-  ///
-  /// Returns None if any of the points are the identity point.
-  pub fn new(O: G, I: G, C: G) -> Option<Self> {
+  pub fn new(O: G, I: G, C: G) -> Result<Self, FcmpError> {
     if bool::from(O.is_identity()) || bool::from(I.is_identity()) || bool::from(C.is_identity()) {
-      None?
+      Err(FcmpError::IdentityPoint)?;
     }
-    Some(Output { O, I, C })
+    Ok(Output { O, I, C })
   }
 
   /// The O element of the output tuple.
@@ -110,19 +109,17 @@ pub struct Input<F: PrimeField> {
 
 impl<F: PrimeField> Input<F> {
   /// Construct a new input tuple.
-  ///
-  /// Returns None if any of the points are the identity point.
   pub fn new<G: DivisorCurve<FieldElement = F>>(
     O_tilde: G,
     I_tilde: G,
     R: G,
     C_tilde: G,
-  ) -> Option<Self> {
-    Some(Input {
-      O_tilde: G::to_xy(O_tilde)?,
-      I_tilde: G::to_xy(I_tilde)?,
-      R: G::to_xy(R)?,
-      C_tilde: G::to_xy(C_tilde)?,
+  ) -> Result<Self, FcmpError> {
+    Ok(Input {
+      O_tilde: G::to_xy(O_tilde).ok_or(FcmpError::IdentityPoint)?,
+      I_tilde: G::to_xy(I_tilde).ok_or(FcmpError::IdentityPoint)?,
+      R: G::to_xy(R).ok_or(FcmpError::IdentityPoint)?,
+      C_tilde: G::to_xy(C_tilde).ok_or(FcmpError::IdentityPoint)?,
     })
   }
 }
@@ -151,6 +148,33 @@ where
   pub(crate) i_blind_v_claim: PointWithDlog<C::OcParameters>,
   pub(crate) i_blind_blind_claim: PointWithDlog<C::OcParameters>,
   pub(crate) c_blind_claim: PointWithDlog<C::OcParameters>,
+}
+
+/// An error encountered while working with FCMPs.
+#[derive(Debug)]
+pub enum FcmpError {
+  /// A point was identity when it isn't allowed to be.
+  IdentityPoint,
+  /// An incorrect quantity of blinds was provided.
+  IncorrectBlindQuantity,
+  /// Not enough generators to work with this FCMP.
+  NotEnoughGenerators,
+  /// The proof was empty (no inputs proven for or no elements in tree).
+  EmptyProof,
+  /// A propagated IO error.
+  IoError(io::Error),
+  /// A propagated arithmetic circuit error.
+  AcError(AcError),
+}
+impl From<io::Error> for FcmpError {
+  fn from(err: io::Error) -> Self {
+    FcmpError::IoError(err)
+  }
+}
+impl From<AcError> for FcmpError {
+  fn from(err: AcError) -> Self {
+    FcmpError::AcError(err)
+  }
 }
 
 /// The full-chain membership proof.
@@ -317,7 +341,7 @@ where
   }
 
   // Prove for a single input's membership
-  #[allow(clippy::too_many_arguments, clippy::type_complexity, clippy::result_unit_err)]
+  #[allow(clippy::too_many_arguments, clippy::type_complexity)]
   fn input(
     params: &FcmpParams<C>,
     layers: usize,
@@ -349,7 +373,7 @@ where
     >,
     input: &Input<<C::C1 as Ciphersuite>::F>,
     opening: TranscriptedInput<C>,
-  ) -> Result<(), ()> {
+  ) -> Result<(), FcmpError> {
     // Open the input tuple to the output and prove its membership on the first branch
     c1_circuit.first_layer(
       transcript,
@@ -454,7 +478,7 @@ where
           b: <<C::C2 as Ciphersuite>::G as DivisorCurve>::b(),
         },
         c1_dlog_challenge.as_ref().unwrap(),
-        <C::C2 as Ciphersuite>::G::to_xy(prior_commitment).ok_or(())?,
+        <C::C2 as Ciphersuite>::G::to_xy(prior_commitment).ok_or(FcmpError::IdentityPoint)?,
         prior_blind_opening,
         (hash_x, hash_y),
         branch,
@@ -481,7 +505,7 @@ where
           b: <<C::C1 as Ciphersuite>::G as DivisorCurve>::b(),
         },
         c2_dlog_challenge.as_ref().unwrap(),
-        <C::C1 as Ciphersuite>::G::to_xy(prior_commitment).ok_or(())?,
+        <C::C1 as Ciphersuite>::G::to_xy(prior_commitment).ok_or(FcmpError::IdentityPoint)?,
         prior_blind_opening,
         (hash_x, hash_y),
         branch,
@@ -497,12 +521,12 @@ where
   ///
   /// This functions runs in variable-time for paths which aren't full (paths which run along the
   /// latest edge of the tree).
-  #[allow(clippy::too_many_arguments, clippy::result_unit_err)]
+  #[allow(clippy::too_many_arguments)]
   pub fn prove<R: RngCore + CryptoRng>(
     rng: &mut R,
     params: &FcmpParams<C>,
     branches: BranchesWithBlinds<C>,
-  ) -> Result<Self, ()>
+  ) -> Result<Self, FcmpError>
   where
     <C::C1 as Ciphersuite>::G: GroupEncoding<Repr = [u8; 32]>,
     <C::C2 as Ciphersuite>::G: GroupEncoding<Repr = [u8; 32]>,
@@ -702,15 +726,20 @@ where
     // dbg!(c1_circuit.muls());
     // dbg!(c2_circuit.muls());
 
-    let (c1_statement, c1_witness) = c1_circuit
-      .statement(params.curve_1_generators.reduce(c1_padded_pow_2).ok_or(())?, commitments_1)
-      .map_err(|_| ())?;
-    c1_statement.prove(rng, &mut transcript, c1_witness.ok_or(())?).map_err(|_| ())?;
+    let (c1_statement, c1_witness) = c1_circuit.statement(
+      params.curve_1_generators.reduce(c1_padded_pow_2).ok_or(FcmpError::NotEnoughGenerators)?,
+      commitments_1,
+    )?;
+    c1_statement.prove(rng, &mut transcript, c1_witness.unwrap())?;
 
-    let (c2_statement, c2_witness) = c2_circuit
-      .statement(params.curve_2_generators.reduce(c2_padded_pow_2).ok_or(())?, commitments_2)
-      .map_err(|_| ())?;
-    c2_statement.prove(rng, &mut transcript, c2_witness.ok_or(())?).map_err(|_| ())?;
+    // This circuit may be empty, meaning we don't have to prove a Bulletproof for it
+    // It should only be empty in negligible environments and at worst is an inefficiency so it's
+    // on-purposely left as-is
+    let (c2_statement, c2_witness) = c2_circuit.statement(
+      params.curve_2_generators.reduce(c2_padded_pow_2).ok_or(FcmpError::NotEnoughGenerators)?,
+      commitments_2,
+    )?;
+    c2_statement.prove(rng, &mut transcript, c2_witness.unwrap())?;
 
     let res = Fcmp { _curves: PhantomData, proof: transcript.complete(), root_blind_pok };
     debug_assert_eq!(res.proof.len() + 64, {
@@ -735,7 +764,7 @@ where
   /// If this function returns an error, the batch verifiers are corrupted and must be discarded.
   // This may be collision resistant regardless of layer count thanks to the expected usage of a
   // distinct curve for the leaves, yet the layer count is cheap to check and avoids the question.
-  #[allow(clippy::too_many_arguments, clippy::result_unit_err)]
+  #[allow(clippy::too_many_arguments)]
   pub fn verify<R: RngCore + CryptoRng>(
     &self,
     rng: &mut R,
@@ -745,9 +774,9 @@ where
     tree: TreeRoot<C::C1, C::C2>,
     layers: usize,
     inputs: &[Input<<C::C1 as Ciphersuite>::F>],
-  ) -> Result<(), ()> {
+  ) -> Result<(), FcmpError> {
     if (layers == 0) || inputs.is_empty() {
-      Err(())?;
+      Err(FcmpError::EmptyProof)?;
     }
 
     let (c1_padded_pow_2, c2_padded_pow_2) = Self::ipa_rows(inputs.len(), layers);
@@ -862,10 +891,8 @@ where
       Self::transcript(tree, inputs, &self.root_blind_pok[.. 32]),
       &self.proof,
     );
-    let proof_1_vcs =
-      transcript.read_commitments::<C::C1>(c1_tape.commitments.len(), 0).map_err(|_| ())?;
-    let proof_2_vcs =
-      transcript.read_commitments::<C::C2>(c2_tape.commitments.len(), 0).map_err(|_| ())?;
+    let proof_1_vcs = transcript.read_commitments::<C::C1>(c1_tape.commitments.len(), 0)?;
+    let proof_2_vcs = transcript.read_commitments::<C::C2>(c2_tape.commitments.len(), 0)?;
 
     // Verify the root blind PoK
     {
@@ -882,17 +909,8 @@ where
       };
       match (claimed_root, tree) {
         (TreeRoot::C1(claimed), TreeRoot::C1(actual)) => {
-          let mut R = <<C::C1 as Ciphersuite>::G as GroupEncoding>::Repr::default();
-          R.as_mut().copy_from_slice(&self.root_blind_pok[.. 32]);
-          let R =
-            Option::<<C::C1 as Ciphersuite>::G>::from(<C::C1 as Ciphersuite>::G::from_bytes(&R))
-              .ok_or(())?;
-
-          let mut s = <<C::C1 as Ciphersuite>::F as PrimeField>::Repr::default();
-          s.as_mut().copy_from_slice(&self.root_blind_pok[32 ..]);
-          let s =
-            Option::<<C::C1 as Ciphersuite>::F>::from(<C::C1 as Ciphersuite>::F::from_repr(s))
-              .ok_or(())?;
+          let R = <C::C1 as Ciphersuite>::read_G(&mut self.root_blind_pok[.. 32].as_ref())?;
+          let s = <C::C1 as Ciphersuite>::read_F(&mut self.root_blind_pok[32 ..].as_ref())?;
 
           let c: <C::C1 as Ciphersuite>::F = transcript.challenge();
 
@@ -904,17 +922,8 @@ where
           verifier_1.h -= s * batch_verifier_weight;
         }
         (TreeRoot::C2(claimed), TreeRoot::C2(actual)) => {
-          let mut R = <<C::C2 as Ciphersuite>::G as GroupEncoding>::Repr::default();
-          R.as_mut().copy_from_slice(&self.root_blind_pok[.. 32]);
-          let R =
-            Option::<<C::C2 as Ciphersuite>::G>::from(<C::C2 as Ciphersuite>::G::from_bytes(&R))
-              .ok_or(())?;
-
-          let mut s = <<C::C2 as Ciphersuite>::F as PrimeField>::Repr::default();
-          s.as_mut().copy_from_slice(&self.root_blind_pok[32 ..]);
-          let s =
-            Option::<<C::C2 as Ciphersuite>::F>::from(<C::C2 as Ciphersuite>::F::from_repr(s))
-              .ok_or(())?;
+          let R = <C::C2 as Ciphersuite>::read_G(&mut self.root_blind_pok[.. 32].as_ref())?;
+          let s = <C::C2 as Ciphersuite>::read_F(&mut self.root_blind_pok[32 ..].as_ref())?;
 
           let c: <C::C2 as Ciphersuite>::F = transcript.challenge();
 
@@ -969,15 +978,17 @@ where
     // dbg!(c1_circuit.muls());
     // dbg!(c2_circuit.muls());
 
-    let (c1_statement, _witness) = c1_circuit
-      .statement(params.curve_1_generators.reduce(c1_padded_pow_2).ok_or(())?, proof_1_vcs)
-      .map_err(|_| ())?;
-    c1_statement.verify(rng, verifier_1, &mut transcript).map_err(|_| ())?;
+    let (c1_statement, _witness) = c1_circuit.statement(
+      params.curve_1_generators.reduce(c1_padded_pow_2).ok_or(FcmpError::NotEnoughGenerators)?,
+      proof_1_vcs,
+    )?;
+    c1_statement.verify(rng, verifier_1, &mut transcript)?;
 
-    let (c2_statement, _witness) = c2_circuit
-      .statement(params.curve_2_generators.reduce(c2_padded_pow_2).ok_or(())?, proof_2_vcs)
-      .map_err(|_| ())?;
-    c2_statement.verify(rng, verifier_2, &mut transcript).map_err(|_| ())?;
+    let (c2_statement, _witness) = c2_circuit.statement(
+      params.curve_2_generators.reduce(c2_padded_pow_2).ok_or(FcmpError::NotEnoughGenerators)?,
+      proof_2_vcs,
+    )?;
+    c2_statement.verify(rng, verifier_2, &mut transcript)?;
 
     Ok(())
   }

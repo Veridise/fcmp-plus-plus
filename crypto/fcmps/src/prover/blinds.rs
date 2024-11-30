@@ -6,7 +6,7 @@ use ciphersuite::group::ff::PrimeFieldBits;
 
 use ec_divisors::{Poly, DivisorCurve, ScalarDecomposition};
 
-use crate::{Output, Input};
+use crate::{Output, Input, FcmpError};
 
 #[derive(Clone, Zeroize)]
 pub(crate) struct ScalarMulAndDivisor<G: DivisorCurve> {
@@ -166,7 +166,7 @@ where
   pub(crate) fn blind(
     &self,
     output: &Output<G>,
-  ) -> Option<Input<<G as DivisorCurve>::FieldElement>> {
+  ) -> Result<Input<<G as DivisorCurve>::FieldElement>, FcmpError> {
     // We add the proven results of the blinds to the input tuple to recalculate the output
     // tuple
     // In order for `input_tuple_value + blind_value = output_tuple_value`,

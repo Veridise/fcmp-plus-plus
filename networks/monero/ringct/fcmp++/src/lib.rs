@@ -241,6 +241,20 @@ impl Input {
 /// A FCMP++ output tuple.
 pub type Output = fcmps::Output<<Ed25519 as Ciphersuite>::G>;
 
+/// An error encountered when working with FCMP++.
+#[derive(Debug)]
+pub enum FcmpPlusPlusError {
+  /// An invalid quantity of key images was provided.
+  InvalidKeyImageQuantity,
+  /// A propagated FCMP error.
+  FcmpError(FcmpError),
+}
+impl From<FcmpError> for FcmpPlusPlusError {
+  fn from(err: FcmpError) -> FcmpPlusPlusError {
+    FcmpPlusPlusError::FcmpError(err)
+  }
+}
+
 /// A FCMP++ proof for a set of inputs.
 #[derive(Clone, Debug, Zeroize)]
 pub struct FcmpPlusPlus {
@@ -297,7 +311,7 @@ impl FcmpPlusPlus {
   ///
   /// `signable_tx_hash` must be binding to the transaction prefix, the RingCT base, and the
   /// pseudo-outs.
-  #[allow(clippy::too_many_arguments, clippy::result_unit_err)]
+  #[allow(clippy::too_many_arguments)]
   pub fn verify(
     &self,
     rng: &mut (impl RngCore + CryptoRng),
@@ -308,19 +322,18 @@ impl FcmpPlusPlus {
     layers: usize,
     signable_tx_hash: [u8; 32],
     key_images: Vec<<Ed25519 as Ciphersuite>::G>,
-  ) -> Result<(), ()> {
+  ) -> Result<(), FcmpPlusPlusError> {
     if self.inputs.len() != key_images.len() {
-      Err(())?;
+      Err(FcmpPlusPlusError::InvalidKeyImageQuantity)?;
     }
 
     let mut fcmp_inputs = Vec::with_capacity(self.inputs.len());
     for ((input, spend_auth_and_linkability), key_image) in self.inputs.iter().zip(key_images) {
       spend_auth_and_linkability.verify(rng, verifier_ed, signable_tx_hash, input, key_image);
 
-      fcmp_inputs
-        .push(fcmps::Input::new(input.O_tilde, input.I_tilde, input.R, input.C_tilde).ok_or(())?);
+      fcmp_inputs.push(fcmps::Input::new(input.O_tilde, input.I_tilde, input.R, input.C_tilde)?);
     }
 
-    self.fcmp.verify(rng, verifier_1, verifier_2, FCMP_PARAMS(), tree, layers, &fcmp_inputs)
+    Ok(self.fcmp.verify(rng, verifier_1, verifier_2, FCMP_PARAMS(), tree, layers, &fcmp_inputs)?)
   }
 }

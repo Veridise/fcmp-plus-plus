@@ -204,31 +204,29 @@ where
   }
 
   /// Blind these branches with the specified blinds.
-  ///
-  /// Returns None if the wrong quantity of blinds are provided.
   pub fn blind(
     self,
     output_blinds: Vec<OutputBlinds<<C::OC as Ciphersuite>::G>>,
     branches_1_blinds: Vec<BranchBlind<<C::C1 as Ciphersuite>::G>>,
     branches_2_blinds: Vec<BranchBlind<<C::C2 as Ciphersuite>::G>>,
-  ) -> Option<BranchesWithBlinds<C>> {
+  ) -> Result<BranchesWithBlinds<C>, FcmpError> {
     if (output_blinds.len() != self.per_input.len()) ||
       (branches_1_blinds.len() != self.necessary_c1_blinds()) ||
       (branches_2_blinds.len() != self.necessary_c2_blinds())
     {
-      None?;
+      Err(FcmpError::IncorrectBlindQuantity)?;
     }
 
-    Some(BranchesWithBlinds {
+    Ok(BranchesWithBlinds {
       per_input: self
         .per_input
         .into_iter()
         .zip(output_blinds)
         .map(|((output, branches), output_blinds)| {
           let input = output_blinds.blind(&output)?;
-          Some(InputProofData { output, output_blinds, input, branches })
+          Ok(InputProofData { output, output_blinds, input, branches })
         })
-        .collect::<Option<_>>()?,
+        .collect::<Result<_, FcmpError>>()?,
       root: self.root,
       branches_1_blinds,
       branches_2_blinds,

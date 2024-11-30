@@ -306,8 +306,8 @@ impl<
     _nonces: &[Vec<EdwardsPoint>],
     sum: Scalar,
   ) -> Option<Self::Signature> {
-    type PSAAL = PartialSpendAuthAndLinkability;
-    let PSAAL { P, A, B, R_O, R_P, R_L, s_beta, s_delta, s_y, s_r_p, r_z } =
+    type Psaal = PartialSpendAuthAndLinkability;
+    let Psaal { P, A, B, R_O, R_P, R_L, s_beta, s_delta, s_y, s_r_p, r_z } =
       { self.partial.clone().unwrap() };
     let s_alpha = sum;
     let s_z = *r_z + (self.rerandomized_output.r_i * s_alpha);
