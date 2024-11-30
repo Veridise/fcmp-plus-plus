@@ -19,6 +19,7 @@ use monero_generators::{T, FCMP_U, FCMP_V};
 
 use crate::{Input, Output};
 
+/// A re-randomized output.
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct RerandomizedOutput {
   input: Input,
@@ -29,6 +30,7 @@ pub struct RerandomizedOutput {
 }
 
 impl RerandomizedOutput {
+  /// Re-randomize an output.
   pub fn new(rng: &mut (impl RngCore + CryptoRng), output: Output) -> RerandomizedOutput {
     let r_o = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
     let r_i = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
@@ -43,6 +45,11 @@ impl RerandomizedOutput {
     RerandomizedOutput { input: Input { O_tilde, I_tilde, R, C_tilde }, r_o, r_i, r_r_i, r_c }
   }
 
+  /// Write a re-randomized output.
+  ///
+  /// This allows saving a re-randomization to prove for the output's membership later.
+  ///
+  /// This does contain secrets which allow linking an output to the input its spent with.
   pub fn write(&self, writer: &mut impl io::Write) -> io::Result<()> {
     self.input.write_full(writer)?;
     writer.write_all(&self.r_o.to_repr())?;
@@ -51,6 +58,7 @@ impl RerandomizedOutput {
     writer.write_all(&self.r_c.to_repr())
   }
 
+  /// Read a re-randomized output.
   pub fn read(reader: &mut impl io::Read) -> io::Result<Self> {
     Ok(Self {
       input: Input::read_full(reader)?,
@@ -63,20 +71,25 @@ impl RerandomizedOutput {
 
   // The FCMP code expects these as used in the proof, which adds these blinds to the blinded
   // values to recover the original values (requiring their negation)
+  /// The scalar to use with `OBlind::new`.
   pub fn o_blind(&self) -> <Ed25519 as Ciphersuite>::F {
     -self.r_o
   }
+  /// The scalar to use with `IBlind::new`.
   pub fn i_blind(&self) -> <Ed25519 as Ciphersuite>::F {
     -self.r_i
   }
+  /// The scalar to use with `IBlindBlind::new`.
   // I's blind's blind is kept in its actual form
   pub fn i_blind_blind(&self) -> <Ed25519 as Ciphersuite>::F {
     self.r_r_i
   }
+  /// The scalar to use with `CBlind::new`.
   pub fn c_blind(&self) -> <Ed25519 as Ciphersuite>::F {
     -self.r_c
   }
 
+  /// The input tuple produced by this output and set of rerandomizations.
   pub fn input(&self) -> Input {
     self.input
   }
@@ -97,6 +110,8 @@ pub struct OpenedInputTuple {
 }
 
 impl OpenedInputTuple {
+  /// Open a re-randomized output as necessary for spending it.
+  ///
   /// x and y are for the x and y variables in O = xG + yT.
   pub fn open(
     rerandomized_output: RerandomizedOutput,
@@ -121,6 +136,7 @@ impl OpenedInputTuple {
   }
 }
 
+/// The Spend-Authorization and Linkability proof for an input under FCMP++.
 // BP+ and GSP Conjuction from Cypher Stack's Review of the FCMP++ Composition
 #[derive(Clone, PartialEq, Eq, Debug, Zeroize)]
 pub struct SpendAuthAndLinkability {
@@ -139,6 +155,7 @@ pub struct SpendAuthAndLinkability {
 }
 
 impl SpendAuthAndLinkability {
+  /// Prove a Spend-Authorization and Linkability proof.
   pub fn prove(
     rng: &mut (impl RngCore + CryptoRng),
     signable_tx_hash: [u8; 32],
@@ -203,6 +220,7 @@ impl SpendAuthAndLinkability {
     )
   }
 
+  /// Verify a Spend-Authorization and Linkability proof.
   #[allow(clippy::result_unit_err)]
   pub fn verify(
     &self,
@@ -287,6 +305,7 @@ impl SpendAuthAndLinkability {
     );
   }
 
+  /// Write a Spend-Authorization and Linkability proof.
   pub fn write(&self, writer: &mut impl io::Write) -> io::Result<()> {
     writer.write_all(&self.P.to_bytes())?;
     writer.write_all(&self.A.to_bytes())?;
@@ -302,6 +321,7 @@ impl SpendAuthAndLinkability {
     writer.write_all(&self.s_r_p.to_repr())
   }
 
+  /// Read a Spend-Authorization and Linkability proof.
   pub fn read(reader: &mut impl io::Read) -> io::Result<Self> {
     Ok(Self {
       P: Ed25519::read_G(reader)?,

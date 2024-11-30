@@ -5,7 +5,7 @@ use rand_core::OsRng;
 use multiexp::multiexp_vartime;
 use dalek_ff_group::{Scalar, EdwardsPoint};
 use ciphersuite::{
-  group::{ff::Field, Group},
+  group::{ff::Field, Group, GroupEncoding},
   Ciphersuite, Ed25519, Selene, Helios,
 };
 use ec_divisors::{DivisorCurve, ScalarDecomposition};
@@ -88,11 +88,13 @@ fn test() {
     (tree, Fcmp::prove(&mut OsRng, FCMP_PARAMS(), blinded_branches).unwrap())
   };
 
+  let fcmp_plus_plus = FcmpPlusPlus::new(vec![(input, spend_auth_and_linkability)], fcmp);
+
   let mut ed_verifier = multiexp::BatchVerifier::new(1);
   let mut c1_verifier = generalized_bulletproofs::Generators::batch_verifier();
   let mut c2_verifier = generalized_bulletproofs::Generators::batch_verifier();
 
-  FcmpPlusPlus::new(vec![(input, spend_auth_and_linkability)], fcmp)
+  fcmp_plus_plus
     .verify(
       &mut OsRng,
       &mut ed_verifier,
@@ -104,6 +106,26 @@ fn test() {
       vec![L],
     )
     .unwrap();
+
+  let mut buf = vec![];
+  fcmp_plus_plus.write(&mut buf).unwrap();
+  assert_eq!(FcmpPlusPlus::proof_size(1, 1), buf.len());
+  let fcmp_plus_plus =
+    FcmpPlusPlus::read(&[input.C_tilde().to_bytes()], 1, &mut buf.as_slice()).unwrap();
+
+  fcmp_plus_plus
+    .verify(
+      &mut OsRng,
+      &mut ed_verifier,
+      &mut c1_verifier,
+      &mut c2_verifier,
+      tree,
+      1, // Layers
+      [0; 32],
+      vec![L],
+    )
+    .unwrap();
+
   assert!(ed_verifier.verify_vartime());
   assert!(SELENE_GENERATORS().verify(c1_verifier));
   assert!(HELIOS_GENERATORS().verify(c2_verifier));

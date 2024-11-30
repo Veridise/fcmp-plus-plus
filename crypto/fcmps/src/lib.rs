@@ -727,6 +727,14 @@ where
   ///
   /// This MAY panic if called with invalid arguments, such as a tree root which doesn't correspond
   /// to the layer count.
+  ///
+  /// The caller must pass the correct amount of layers for this tree root. If the prover specified
+  /// the amount of layers, the specified amount of layers must be checked to be equal to the
+  /// actual amount of layers.
+  ///
+  /// If this function returns an error, the batch verifiers are corrupted and must be discarded.
+  // This may be collision resistant regardless of layer count thanks to the expected usage of a
+  // distinct curve for the leaves, yet the layer count is cheap to check and avoids the question.
   #[allow(clippy::too_many_arguments, clippy::result_unit_err)]
   pub fn verify<R: RngCore + CryptoRng>(
     &self,

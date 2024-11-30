@@ -1,7 +1,7 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
-// #![doc = include_str!("../README.md")] TODO
+#![doc = include_str!("../README.md")]
 #![cfg_attr(not(feature = "std"), no_std)]
-// #![deny(missing_docs)] TODO
+#![deny(missing_docs)]
 #![allow(non_snake_case)]
 
 use std_shims::{sync::OnceLock, vec, vec::Vec, io};
@@ -35,6 +35,7 @@ use sal::*;
 #[cfg(test)]
 mod tests;
 
+/// The discrete-log gadget parameters for Ed25519.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Ed25519Params;
 impl DiscreteLogParameters for Ed25519Params {
@@ -44,6 +45,7 @@ impl DiscreteLogParameters for Ed25519Params {
   type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
 }
 
+/// The discrete-log gadget parameters for Selene.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct SeleneParams;
 impl DiscreteLogParameters for SeleneParams {
@@ -53,6 +55,7 @@ impl DiscreteLogParameters for SeleneParams {
   type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
 }
 
+/// The discrete-log gadget parameters for Helios.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct HeliosParams;
 impl DiscreteLogParameters for HeliosParams {
@@ -62,6 +65,7 @@ impl DiscreteLogParameters for HeliosParams {
   type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
 }
 
+/// The curves to use with the FCMP.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Curves;
 impl FcmpCurves for Curves {
@@ -86,18 +90,21 @@ fn hash_to_point_on_curve<C: Ciphersuite>(buf: &[u8]) -> C::G {
 }
 
 static HELIOS_HASH_INIT_CELL: OnceLock<<Helios as Ciphersuite>::G> = OnceLock::new();
+/// The hash-initialization generator for Helios hashes.
 pub fn HELIOS_HASH_INIT() -> <Helios as Ciphersuite>::G {
   *HELIOS_HASH_INIT_CELL
     .get_or_init(|| hash_to_point_on_curve::<Helios>(b"Monero Helios Hash Initializer"))
 }
 
 static SELENE_HASH_INIT_CELL: OnceLock<<Selene as Ciphersuite>::G> = OnceLock::new();
+/// The hash-initialization generator for Selene hashes.
 pub fn SELENE_HASH_INIT() -> <Selene as Ciphersuite>::G {
   *SELENE_HASH_INIT_CELL
     .get_or_init(|| hash_to_point_on_curve::<Selene>(b"Monero Selene Hash Initializer"))
 }
 
 static HELIOS_GENERATORS_CELL: OnceLock<Generators<Helios>> = OnceLock::new();
+/// The generators for Helios.
 pub fn HELIOS_GENERATORS() -> &'static Generators<Helios> {
   HELIOS_GENERATORS_CELL.get_or_init(|| {
     let g = hash_to_point_on_curve::<Helios>(b"Monero Helios G");
@@ -118,6 +125,7 @@ pub fn HELIOS_GENERATORS() -> &'static Generators<Helios> {
 }
 
 static SELENE_GENERATORS_CELL: OnceLock<Generators<Selene>> = OnceLock::new();
+/// The generators for Selene.
 pub fn SELENE_GENERATORS() -> &'static Generators<Selene> {
   SELENE_GENERATORS_CELL.get_or_init(|| {
     let g = hash_to_point_on_curve::<Selene>(b"Monero Selene G");
@@ -138,6 +146,7 @@ pub fn SELENE_GENERATORS() -> &'static Generators<Selene> {
 }
 
 static FCMP_PARAMS_CELL: OnceLock<FcmpParams<Curves>> = OnceLock::new();
+/// The parameters for the FCMPs.
 pub fn FCMP_PARAMS() -> &'static FcmpParams<Curves> {
   FCMP_PARAMS_CELL.get_or_init(|| {
     FcmpParams::<Curves>::new(
@@ -155,6 +164,10 @@ pub fn FCMP_PARAMS() -> &'static FcmpParams<Curves> {
   })
 }
 
+/// An input tuple.
+///
+/// The FCMP crate has this same object yet with a distinct internal layout. This definition should
+/// be preferred.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
 pub struct Input {
   O_tilde: <Ed25519 as Ciphersuite>::G,
@@ -164,6 +177,7 @@ pub struct Input {
 }
 
 impl Input {
+  // Write an Input without the pseudo-out.
   fn write_partial(&self, writer: &mut impl io::Write) -> io::Result<()> {
     writer.write_all(&self.O_tilde.to_bytes())?;
     writer.write_all(&self.I_tilde.to_bytes())?;
@@ -182,6 +196,7 @@ impl Input {
     })
   }
 
+  // Write the full pseudo-out.
   fn write_full(&self, writer: &mut impl io::Write) -> io::Result<()> {
     self.write_partial(writer)?;
     writer.write_all(&self.C_tilde.to_bytes())
@@ -201,10 +216,32 @@ impl Input {
     transcript.update(self.R.to_bytes());
     transcript.update(L.to_bytes());
   }
+
+  /// O~ from the input commitment.
+  pub fn O_tilde(&self) -> <Ed25519 as Ciphersuite>::G {
+    self.O_tilde
+  }
+
+  /// I~ from the input commitment.
+  pub fn I_tilde(&self) -> <Ed25519 as Ciphersuite>::G {
+    self.I_tilde
+  }
+
+  /// R from the input commitment.
+  pub fn R(&self) -> <Ed25519 as Ciphersuite>::G {
+    self.R
+  }
+
+  /// C~ from the input commitment (the pseudo-out).
+  pub fn C_tilde(&self) -> <Ed25519 as Ciphersuite>::G {
+    self.C_tilde
+  }
 }
 
+/// A FCMP++ output tuple.
 pub type Output = fcmps::Output<<Ed25519 as Ciphersuite>::G>;
 
+/// A FCMP++ proof for a set of inputs.
 #[derive(Clone, Debug, Zeroize)]
 pub struct FcmpPlusPlus {
   inputs: Vec<(Input, SpendAuthAndLinkability)>,
@@ -212,15 +249,18 @@ pub struct FcmpPlusPlus {
 }
 
 impl FcmpPlusPlus {
+  /// Create a new FCMP++ proof from its components.
   pub fn new(inputs: Vec<(Input, SpendAuthAndLinkability)>, fcmp: Fcmp<Curves>) -> FcmpPlusPlus {
     FcmpPlusPlus { inputs, fcmp }
   }
 
+  /// The size of a FCMP++ proof.
   pub fn proof_size(inputs: usize, layers: usize) -> usize {
     // Each input tuple, without C~, each SAL, and the FCMP
     (inputs * ((3 * 32) + (12 * 32))) + Fcmp::<Curves>::proof_size(inputs, layers)
   }
 
+  /// Write a FCMP++ proof.
   pub fn write(&self, writer: &mut impl io::Write) -> io::Result<()> {
     for (input, spend_auth_and_linkability) in &self.inputs {
       input.write_partial(writer)?;
@@ -251,6 +291,12 @@ impl FcmpPlusPlus {
     Ok(Self { inputs, fcmp })
   }
 
+  /// Verify an FCMP++.
+  ///
+  /// See [`Fcmp::verify`] for further context.
+  ///
+  /// `signable_tx_hash` must be binding to the transaction prefix, the RingCT base, and the
+  /// pseudo-outs.
   #[allow(clippy::too_many_arguments, clippy::result_unit_err)]
   pub fn verify(
     &self,
