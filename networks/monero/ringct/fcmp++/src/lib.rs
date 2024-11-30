@@ -160,20 +160,34 @@ pub struct Input {
 }
 
 impl Input {
-  fn write(&self, writer: &mut impl io::Write) -> io::Result<()> {
+  fn write_partial(&self, writer: &mut impl io::Write) -> io::Result<()> {
     writer.write_all(&self.O_tilde.to_bytes())?;
     writer.write_all(&self.I_tilde.to_bytes())?;
-    writer.write_all(&self.R.to_bytes())?;
-    writer.write_all(&self.C_tilde.to_bytes())
+    writer.write_all(&self.R.to_bytes())
   }
 
-  fn read(reader: &mut impl io::Read) -> io::Result<Input> {
+  fn read_partial(
+    C_tilde: <Ed25519 as Ciphersuite>::G,
+    reader: &mut impl io::Read,
+  ) -> io::Result<Input> {
     Ok(Self {
       O_tilde: Ed25519::read_G(reader)?,
       I_tilde: Ed25519::read_G(reader)?,
       R: Ed25519::read_G(reader)?,
-      C_tilde: Ed25519::read_G(reader)?,
+      C_tilde,
     })
+  }
+
+  fn write_full(&self, writer: &mut impl io::Write) -> io::Result<()> {
+    self.write_partial(writer)?;
+    writer.write_all(&self.C_tilde.to_bytes())
+  }
+
+  fn read_full(reader: &mut impl io::Read) -> io::Result<Input> {
+    let mut OIR = [0; 3 * 32];
+    reader.read_exact(&mut OIR)?;
+    let C_tilde = Ed25519::read_G(reader)?;
+    Self::read_partial(C_tilde, &mut OIR.as_slice())
   }
 
   fn transcript(&self, transcript: &mut Blake2b512, L: <Ed25519 as Ciphersuite>::G) {
@@ -198,8 +212,40 @@ impl FcmpPlusPlus {
     FcmpPlusPlus { inputs, fcmp }
   }
 
-  // TODO: proof_len, write, read
-  // TODO: pseudo_outs?
+  pub fn proof_size(inputs: usize, layers: usize) -> usize {
+    // Each input tuple, without C~, each SAL, and the FCMP
+    (inputs * ((3 * 32) + (12 * 32))) + Fcmp::<Curves>::proof_size(inputs, layers)
+  }
+
+  pub fn write(&self, writer: &mut impl io::Write) -> io::Result<()> {
+    for (input, spend_auth_and_linkability) in &self.inputs {
+      input.write_partial(writer)?;
+      spend_auth_and_linkability.write(writer)?;
+    }
+    self.fcmp.write(writer)
+  }
+
+  /// Read an FCMP++.
+  ///
+  /// The pseudo-outs are passed in as Monero already defines a field for them. It's less annoying
+  /// to receive them here than to move them into here and expose them to Monero. It also informs
+  /// us of how many inputs we're reading a proof for.
+  ///
+  /// The amount of layers for the FCMP are also passed in here as the FCMP's length is variable to
+  /// that.
+  pub fn read(
+    pseudo_outs: &[[u8; 32]],
+    layers: usize,
+    reader: &mut impl io::Read,
+  ) -> io::Result<Self> {
+    let mut inputs = vec![];
+    for pseudo_out in pseudo_outs {
+      let C_tilde = Ed25519::read_G(&mut pseudo_out.as_slice())?;
+      inputs.push((Input::read_partial(C_tilde, reader)?, SpendAuthAndLinkability::read(reader)?));
+    }
+    let fcmp = Fcmp::read(reader, pseudo_outs.len(), layers)?;
+    Ok(Self { inputs, fcmp })
+  }
 
   #[allow(clippy::too_many_arguments, clippy::result_unit_err)]
   pub fn verify(

@@ -44,7 +44,7 @@ impl RerandomizedOutput {
   }
 
   pub fn write(&self, writer: &mut impl io::Write) -> io::Result<()> {
-    self.input.write(writer)?;
+    self.input.write_full(writer)?;
     writer.write_all(&self.r_o.to_repr())?;
     writer.write_all(&self.r_i.to_repr())?;
     writer.write_all(&self.r_r_i.to_repr())?;
@@ -53,7 +53,7 @@ impl RerandomizedOutput {
 
   pub fn read(reader: &mut impl io::Read) -> io::Result<Self> {
     Ok(Self {
-      input: Input::read(reader)?,
+      input: Input::read_full(reader)?,
       r_o: Ed25519::read_F(reader)?,
       r_i: Ed25519::read_F(reader)?,
       r_r_i: Ed25519::read_F(reader)?,
@@ -285,5 +285,37 @@ impl SpendAuthAndLinkability {
         (self.s_z, U),
       ],
     );
+  }
+
+  pub fn write(&self, writer: &mut impl io::Write) -> io::Result<()> {
+    writer.write_all(&self.P.to_bytes())?;
+    writer.write_all(&self.A.to_bytes())?;
+    writer.write_all(&self.B.to_bytes())?;
+    writer.write_all(&self.R_O.to_bytes())?;
+    writer.write_all(&self.R_P.to_bytes())?;
+    writer.write_all(&self.R_L.to_bytes())?;
+    writer.write_all(&self.s_alpha.to_repr())?;
+    writer.write_all(&self.s_beta.to_repr())?;
+    writer.write_all(&self.s_delta.to_repr())?;
+    writer.write_all(&self.s_y.to_repr())?;
+    writer.write_all(&self.s_z.to_repr())?;
+    writer.write_all(&self.s_r_p.to_repr())
+  }
+
+  pub fn read(reader: &mut impl io::Read) -> io::Result<Self> {
+    Ok(Self {
+      P: Ed25519::read_G(reader)?,
+      A: Ed25519::read_G(reader)?,
+      B: Ed25519::read_G(reader)?,
+      R_O: Ed25519::read_G(reader)?,
+      R_P: Ed25519::read_G(reader)?,
+      R_L: Ed25519::read_G(reader)?,
+      s_alpha: Ed25519::read_F(reader)?,
+      s_beta: Ed25519::read_F(reader)?,
+      s_delta: Ed25519::read_F(reader)?,
+      s_y: Ed25519::read_F(reader)?,
+      s_z: Ed25519::read_F(reader)?,
+      s_r_p: Ed25519::read_F(reader)?,
+    })
   }
 }
