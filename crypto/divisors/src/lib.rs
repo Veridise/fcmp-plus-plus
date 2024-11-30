@@ -1,7 +1,10 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![doc = include_str!("../README.md")]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
 #![allow(non_snake_case)]
+
+use std_shims::{vec, vec::Vec};
 
 use subtle::{Choice, ConstantTimeEq, ConstantTimeGreater, ConditionallySelectable};
 use zeroize::{Zeroize, ZeroizeOnDrop};

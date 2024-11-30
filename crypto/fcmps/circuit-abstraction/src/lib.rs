@@ -1,7 +1,10 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![doc = include_str!("../README.md")]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
 #![allow(non_snake_case)]
+
+use std_shims::{vec, vec::Vec};
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -181,13 +184,13 @@ impl<C: Ciphersuite> Circuit<C> {
         // We can't deconstruct the witness as it implements Drop (per ZeroizeOnDrop)
         // Accordingly, we take the values within it and move forward with those
         let mut aL = vec![];
-        std::mem::swap(&mut prover.aL, &mut aL);
+        core::mem::swap(&mut prover.aL, &mut aL);
         let mut aR = vec![];
-        std::mem::swap(&mut prover.aR, &mut aR);
+        core::mem::swap(&mut prover.aR, &mut aR);
         let mut C = vec![];
-        std::mem::swap(&mut prover.C, &mut C);
+        core::mem::swap(&mut prover.C, &mut C);
         let mut V = vec![];
-        std::mem::swap(&mut prover.V, &mut V);
+        core::mem::swap(&mut prover.V, &mut V);
         ArithmeticCircuitWitness::new(ScalarVector::from(aL), ScalarVector::from(aR), C, V)
       })
       .transpose()?;

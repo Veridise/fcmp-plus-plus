@@ -1,4 +1,4 @@
-use std::io;
+use std_shims::{vec::Vec, io};
 
 use blake2::{Digest, Blake2b512};
 

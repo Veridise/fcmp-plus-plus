@@ -1,3 +1,5 @@
+use std_shims::{vec, vec::Vec};
+
 use zeroize::Zeroize;
 
 use generic_array::{typenum::Unsigned, GenericArray};

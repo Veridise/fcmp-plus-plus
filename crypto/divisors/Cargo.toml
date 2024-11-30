@@ -13,15 +13,17 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-rand_core = { version = "0.6", default-features = false }
-zeroize = { version = "^1.5", default-features = false, features = ["std", "zeroize_derive"] }
+std-shims = { path = "../../common/std-shims", version = "^0.1.1", default-features = false }
 
-subtle = { version = "2", default-features = false, features = ["std"] }
-ff = { version = "0.13", default-features = false, features = ["std", "bits"] }
+rand_core = { version = "0.6", default-features = false }
+zeroize = { version = "^1.5", default-features = false, features = ["zeroize_derive"] }
+
+subtle = { version = "2", default-features = false }
+ff = { version = "0.13", default-features = false, features = ["bits"] }
 group = { version = "0.13", default-features = false }
 
-hex = { version = "0.4", optional = true }
-dalek-ff-group = { path = "../dalek-ff-group", features = ["std"], optional = true }
+hex = { version = "0.4", default-features = false, optional = true }
+dalek-ff-group = { path = "../dalek-ff-group", default-features = false, optional = true }
 pasta_curves = { version = "0.5", git = "https://github.com/kayabaNerve/pasta_curves.git", default-features = false, features = ["bits", "alloc"], optional = true }
 
 [dev-dependencies]
@@ -32,5 +34,7 @@ dalek-ff-group = { path = "../dalek-ff-group", features = ["std"] }
 pasta_curves = { version = "0.5", git = "https://github.com/kayabaNerve/pasta_curves.git", default-features = false, features = ["bits", "alloc"] }
 
 [features]
-ed25519 = ["hex", "dalek-ff-group"]
+std = ["std-shims/std", "zeroize/std", "subtle/std", "ff/std", "dalek-ff-group?/std"]
+ed25519 = ["hex/alloc", "dalek-ff-group"]
 pasta = ["pasta_curves"]
+default = ["std"]

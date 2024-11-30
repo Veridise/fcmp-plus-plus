@@ -18,23 +18,47 @@ ignored = ["ec-divisors"]
 [dependencies]
 std-shims = { path = "../../../../common/std-shims", version = "^0.1.1", default-features = false }
 
-rand_core = "0.6"
-zeroize = "1"
+rand_core = { version = "0.6", default-features = false }
+zeroize = { version = "1", default-features = false }
 
 generic-array = { version = "1", default-features = false, features = ["alloc"] }
 
 blake2 = { version = "0.10", default-features = false }
 
-multiexp = { path = "../../../../crypto/multiexp" }
+multiexp = { path = "../../../../crypto/multiexp", default-features = false }
 curve25519-dalek = { version = "4", default-features = false, features = ["alloc", "zeroize"] }
-dalek-ff-group = { path = "../../../../crypto/dalek-ff-group" }
-ciphersuite = { path = "../../../../crypto/ciphersuite", features = ["ed25519", "helioselene"] }
+dalek-ff-group = { path = "../../../../crypto/dalek-ff-group", default-features = false }
+ciphersuite = { path = "../../../../crypto/ciphersuite", default-features = false, features = ["ed25519", "helioselene"] }
 
-generalized-bulletproofs = { path = "../../../../crypto/generalized-bulletproofs" }
-ec-divisors = { path = "../../../../crypto/divisors", features = ["ed25519"] }
-generalized-bulletproofs-ec-gadgets = { path = "../../../../crypto/fcmps/ec-gadgets" }
-fcmps = { package = "full-chain-membership-proofs", path = "../../../../crypto/fcmps" }
+generalized-bulletproofs = { path = "../../../../crypto/generalized-bulletproofs", default-features = false }
+ec-divisors = { path = "../../../../crypto/divisors", default-features = false, features = ["ed25519"] }
+generalized-bulletproofs-ec-gadgets = { path = "../../../../crypto/fcmps/ec-gadgets", default-features = false }
+fcmps = { package = "full-chain-membership-proofs", path = "../../../../crypto/fcmps", default-features = false }
 
-monero-io = { path = "../../io" }
-monero-generators = { path = "../../generators" }
-monero-primitives = { path = "../../primitives" }
+monero-io = { path = "../../io", default-features = false }
+monero-generators = { path = "../../generators", default-features = false }
+monero-primitives = { path = "../../primitives", default-features = false }
+
+[features]
+std = [
+  "std-shims/std",
+
+  "rand_core/std",
+  "zeroize/std",
+
+  "blake2/std",
+
+  "multiexp/std",
+  "dalek-ff-group/std",
+  "ciphersuite/std",
+
+  "generalized-bulletproofs/std",
+  "ec-divisors/std",
+  "generalized-bulletproofs-ec-gadgets/std",
+  "fcmps/std",
+
+  "monero-io/std",
+  "monero-generators/std",
+  "monero-primitives/std",
+]
+default = ["std"]

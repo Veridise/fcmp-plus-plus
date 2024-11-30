@@ -1,3 +1,5 @@
+use std_shims::{vec, vec::Vec};
+
 use ciphersuite::Ciphersuite;
 
 pub(crate) use generalized_bulletproofs_ec_gadgets::*;

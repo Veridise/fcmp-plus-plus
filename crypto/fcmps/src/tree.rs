@@ -1,3 +1,5 @@
+use std_shims::vec::Vec;
+
 use multiexp::multiexp_vartime;
 use ciphersuite::Ciphersuite;
 

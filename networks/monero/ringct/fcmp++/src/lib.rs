@@ -1,6 +1,10 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+// #![doc = include_str!("../README.md")] TODO
+#![cfg_attr(not(feature = "std"), no_std)]
+// #![deny(missing_docs)] TODO
 #![allow(non_snake_case)]
 
-use std_shims::{sync::OnceLock, io};
+use std_shims::{sync::OnceLock, vec, vec::Vec, io};
 
 use rand_core::{RngCore, CryptoRng};
 use zeroize::Zeroize;

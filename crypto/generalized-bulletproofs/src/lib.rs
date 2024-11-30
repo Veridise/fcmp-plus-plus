@@ -1,10 +1,11 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![doc = include_str!("../README.md")]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
 #![allow(non_snake_case)]
 
 use core::fmt;
-use std::collections::HashSet;
+use std_shims::{vec, vec::Vec, collections::HashSet};
 
 use zeroize::Zeroize;
 

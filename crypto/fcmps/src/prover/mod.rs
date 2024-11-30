@@ -1,3 +1,5 @@
+use std_shims::{vec, vec::Vec};
+
 use ciphersuite::{group::ff::Field, Ciphersuite};
 
 use ec_divisors::DivisorCurve;

@@ -1,4 +1,5 @@
 use core::fmt;
+use std_shims::{vec, vec::Vec};
 
 use ciphersuite::{
   group::ff::{Field, PrimeField, BatchInverter},

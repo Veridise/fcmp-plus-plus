@@ -410,6 +410,7 @@ dependencies = [
  "hex",
  "pasta_curves 0.5.1 (git+https://github.com/kayabaNerve/pasta_curves.git)",
  "rand_core",
+ "std-shims",
  "subtle",
  "zeroize",
 ]
@@ -517,6 +518,7 @@ dependencies = [
  "helioselene",
  "multiexp",
  "rand_core",
+ "std-shims",
  "zeroize",
 ]
 
@@ -568,6 +570,7 @@ dependencies = [
  "flexible-transcript",
  "multiexp",
  "rand_core",
+ "std-shims",
  "zeroize",
 ]
 
@@ -577,6 +580,7 @@ version = "0.1.0"
 dependencies = [
  "ciphersuite",
  "generalized-bulletproofs",
+ "std-shims",
  "zeroize",
 ]
 
@@ -587,6 +591,7 @@ dependencies = [
  "ciphersuite",
  "generalized-bulletproofs-circuit-abstraction",
  "generic-array 1.1.1",
+ "std-shims",
 ]
 
 [[package]]
@@ -1325,8 +1330,14 @@ dependencies = [
  "dalek-ff-group",
  "dkg",
  "dleq",
+ "ec-divisors",
  "flexible-transcript",
+ "full-chain-membership-proofs",
+ "generalized-bulletproofs",
+ "generalized-bulletproofs-circuit-abstraction",
+ "generalized-bulletproofs-ec-gadgets",
  "minimal-ed448",
+ "monero-fcmp-plus-plus",
  "multiexp",
  "schnorr-signatures",
 ]

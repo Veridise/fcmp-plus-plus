@@ -1,3 +1,5 @@
+use std_shims::{vec, vec::Vec};
+
 use multiexp::multiexp_vartime;
 use ciphersuite::{group::ff::Field, Ciphersuite};
 

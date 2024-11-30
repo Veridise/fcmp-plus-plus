@@ -1,3 +1,5 @@
+use std_shims::{vec, vec::Vec};
+
 use ciphersuite::Ciphersuite;
 
 use generalized_bulletproofs::{
