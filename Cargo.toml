@@ -20,7 +20,6 @@ members = [
   "crypto/dkg",
   "crypto/frost",
 
-  "crypto/generalized-schnorr",
   "crypto/divisors",
   "crypto/generalized-bulletproofs",
   "crypto/fcmps/circuit-abstraction",
