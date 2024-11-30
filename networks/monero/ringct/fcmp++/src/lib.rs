@@ -7,9 +7,10 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use generic_array::typenum::{Sum, Diff, Quot, U, U1, U2};
 
-use transcript::{Transcript, RecommendedTranscript};
+use blake2::{Digest, Blake2b512};
 
-use dalek_ff_group::EdwardsPoint;
+use curve25519_dalek::Scalar as DalekScalar;
+use dalek_ff_group::{Scalar, EdwardsPoint};
 use ciphersuite::{
   group::{
     ff::{Field, PrimeField},
@@ -18,14 +19,13 @@ use ciphersuite::{
   Ciphersuite, Ed25519, Helios, Selene,
 };
 
-use generalized_schnorr::GeneralizedSchnorr;
 use generalized_bulletproofs::Generators;
 use generalized_bulletproofs_ec_gadgets::*;
 use fcmps::*;
 
 use monero_io::write_varint;
 use monero_primitives::keccak256;
-use monero_generators::{H, T, FCMP_U, FCMP_V, hash_to_point};
+use monero_generators::{T, FCMP_U, FCMP_V};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Ed25519Params;
@@ -33,7 +33,7 @@ impl DiscreteLogParameters for Ed25519Params {
   type ScalarBits = U<{ <<Ed25519 as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
   type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
   type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
-  type YxCoefficients = Diff<Quot<Sum<Sum<Self::ScalarBits, U1>, U1>, U2>, U2>;
+  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -42,7 +42,7 @@ impl DiscreteLogParameters for SeleneParams {
   type ScalarBits = U<{ <<Selene as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
   type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
   type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
-  type YxCoefficients = Diff<Quot<Sum<Sum<Self::ScalarBits, U1>, U1>, U2>, U2>;
+  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -51,7 +51,7 @@ impl DiscreteLogParameters for HeliosParams {
   type ScalarBits = U<{ <<Helios as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
   type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
   type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
-  type YxCoefficients = Diff<Quot<Sum<Sum<Self::ScalarBits, U1>, U1>, U2>, U2>;
+  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -133,13 +133,6 @@ pub fn SELENE_GENERATORS() -> &'static Generators<Selene> {
   })
 }
 
-#[derive(Clone, PartialEq, Eq, Zeroize)]
-pub struct Output {
-  O: <Ed25519 as Ciphersuite>::G,
-  I: <Ed25519 as Ciphersuite>::G,
-  C: <Ed25519 as Ciphersuite>::G,
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
 pub struct Input {
   O_tilde: <Ed25519 as Ciphersuite>::G,
@@ -149,22 +142,12 @@ pub struct Input {
 }
 
 impl Input {
-  pub fn transcript(&self, transcript: &mut impl Transcript, L: <Ed25519 as Ciphersuite>::G) {
-    transcript.append_message(b"L", L.to_bytes());
-    transcript.append_message(b"O_tilde", self.O_tilde.to_bytes());
-    transcript.append_message(b"I_tilde", self.I_tilde.to_bytes());
-    transcript.append_message(b"C_tilde", self.C_tilde.to_bytes());
-    transcript.append_message(b"R", self.R.to_bytes());
-  }
-}
-
-impl Output {
-  pub fn from_ring(O: <Ed25519 as Ciphersuite>::G, amount: u64) -> Output {
-    let C = EdwardsPoint(H()) * <Ed25519 as Ciphersuite>::F::from(amount);
-    Self::from_ringct(O, C)
-  }
-  pub fn from_ringct(O: <Ed25519 as Ciphersuite>::G, C: <Ed25519 as Ciphersuite>::G) -> Output {
-    Output { O, I: EdwardsPoint(hash_to_point(O.compress().0)), C }
+  fn transcript(&self, transcript: &mut Blake2b512, L: <Ed25519 as Ciphersuite>::G) {
+    transcript.update(self.O_tilde.to_bytes());
+    transcript.update(self.I_tilde.to_bytes());
+    transcript.update(self.C_tilde.to_bytes());
+    transcript.update(self.R.to_bytes());
+    transcript.update(L.to_bytes());
   }
 }
 
@@ -178,16 +161,19 @@ pub struct RerandomizedOutput {
 }
 
 impl RerandomizedOutput {
-  pub fn new(rng: &mut (impl RngCore + CryptoRng), output: Output) -> RerandomizedOutput {
+  pub fn new(
+    rng: &mut (impl RngCore + CryptoRng),
+    output: Output<EdwardsPoint>,
+  ) -> RerandomizedOutput {
     let r_o = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
     let r_i = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
     let r_j = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
     let r_c = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
 
-    let O_tilde = output.O + (EdwardsPoint(T()) * r_o);
-    let I_tilde = output.I + (EdwardsPoint(FCMP_U()) * r_i);
+    let O_tilde = output.O() + (EdwardsPoint(T()) * r_o);
+    let I_tilde = output.I() + (EdwardsPoint(FCMP_U()) * r_i);
     let R = (EdwardsPoint(FCMP_V()) * r_i) + (EdwardsPoint(T()) * r_j);
-    let C_tilde = output.C + (<Ed25519 as Ciphersuite>::generator() * r_c);
+    let C_tilde = output.C() + (<Ed25519 as Ciphersuite>::generator() * r_c);
 
     RerandomizedOutput { input: Input { O_tilde, I_tilde, R, C_tilde }, r_o, r_i, r_j, r_c }
   }
@@ -236,20 +222,21 @@ impl OpenedInputTuple {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
-pub struct BpPlus {
-  A: <Ed25519 as Ciphersuite>::G,
-  B: <Ed25519 as Ciphersuite>::G,
-  s_alpha: <Ed25519 as Ciphersuite>::F,
-  s_beta: <Ed25519 as Ciphersuite>::F,
-  s_delta: <Ed25519 as Ciphersuite>::F,
-}
-
+// BP+ and GSP Conjuction from Cypher Stack's Review of the FCMP++ Composition
 #[derive(Clone, PartialEq, Eq, Debug, Zeroize)]
 pub struct SpendAuthAndLinkability {
   P: <Ed25519 as Ciphersuite>::G,
-  bp_plus: BpPlus,
-  gsp: GeneralizedSchnorr<Ed25519, 3, 4, 6>,
+  A: <Ed25519 as Ciphersuite>::G,
+  B: <Ed25519 as Ciphersuite>::G,
+  R_O: <Ed25519 as Ciphersuite>::G,
+  R_P: <Ed25519 as Ciphersuite>::G,
+  R_L: <Ed25519 as Ciphersuite>::G,
+  s_alpha: <Ed25519 as Ciphersuite>::F,
+  s_beta: <Ed25519 as Ciphersuite>::F,
+  s_delta: <Ed25519 as Ciphersuite>::F,
+  s_y: <Ed25519 as Ciphersuite>::F,
+  s_z: <Ed25519 as Ciphersuite>::F,
+  s_r_p: <Ed25519 as Ciphersuite>::F,
 }
 
 impl SpendAuthAndLinkability {
@@ -265,75 +252,140 @@ impl SpendAuthAndLinkability {
 
     let L = (opening.input.I_tilde * opening.x) - (U * opening.r_i);
 
-    let mut transcript = RecommendedTranscript::new(b"FCMP++ SA+L");
-    transcript.domain_separate(b"monero");
-    transcript.append_message(b"tx_hash", signable_tx_hash);
+    let mut transcript = Blake2b512::new();
+    transcript.update(signable_tx_hash);
     opening.input.transcript(&mut transcript, L);
 
-    let r_p = Zeroizing::new(<Ed25519 as Ciphersuite>::F::random(&mut *rng));
     let alpha = Zeroizing::new(<Ed25519 as Ciphersuite>::F::random(&mut *rng));
     let beta = Zeroizing::new(<Ed25519 as Ciphersuite>::F::random(&mut *rng));
-    let mu = Zeroizing::new(<Ed25519 as Ciphersuite>::F::random(&mut *rng));
     let delta = Zeroizing::new(<Ed25519 as Ciphersuite>::F::random(&mut *rng));
+    let mu = Zeroizing::new(<Ed25519 as Ciphersuite>::F::random(&mut *rng));
+    let r_y = Zeroizing::new(<Ed25519 as Ciphersuite>::F::random(&mut *rng));
+    let r_z = Zeroizing::new(<Ed25519 as Ciphersuite>::F::random(&mut *rng));
+    let r_p = Zeroizing::new(<Ed25519 as Ciphersuite>::F::random(&mut *rng));
+    let r_r_p = Zeroizing::new(<Ed25519 as Ciphersuite>::F::random(&mut *rng));
 
     let x_r_i = Zeroizing::new(opening.x * opening.r_i);
+
     let P = (G * opening.x) + (V * opening.r_i) + (U * *x_r_i) + (T * *r_p);
 
-    let A = (G * *alpha) +
-      (V * *beta) +
-      (U * ((*alpha * opening.r_i) + (*beta * opening.x))) +
-      (T * *delta);
+    let alpha_G = G * *alpha;
+
+    let A =
+      alpha_G + (V * *beta) + (U * ((*alpha * opening.r_i) + (*beta * opening.x))) + (T * *delta);
     let B = (U * (*alpha * *beta)) + (T * *mu);
 
-    transcript.domain_separate(b"bp+");
-    transcript.append_message(b"P", P.to_bytes());
-    transcript.append_message(b"A", A.to_bytes());
-    transcript.append_message(b"B", B.to_bytes());
+    let R_O = alpha_G + (T * *r_y);
+    let R_P = (U * *r_z) + (T * *r_r_p);
+    let R_L = (opening.input.I_tilde * *alpha) - (U * *r_z);
 
-    let e = <Ed25519 as Ciphersuite>::hash_to_F(b"FCMP++ SA+L BP+", &transcript.challenge(b"e"));
+    transcript.update(P.to_bytes());
+    transcript.update(A.to_bytes());
+    transcript.update(B.to_bytes());
+    transcript.update(R_O.to_bytes());
+    transcript.update(R_P.to_bytes());
+    transcript.update(R_L.to_bytes());
+
+    let e = Scalar(DalekScalar::from_hash(transcript.clone()));
 
     let s_alpha = *alpha + (e * opening.x);
     let s_beta = *beta + (e * opening.r_i);
     let s_delta = *mu + (e * *delta) + (*r_p * e.square());
+    let s_y = *r_y + (e * opening.y);
+    // z is x_r_i
+    let s_z = *r_z + (e * *x_r_i);
+    // r_p is overloaded into r_p' and r_p'' by the paper, hence this distinguishing
+    let r_p_double_quote = Zeroizing::new(*r_p - opening.y - opening.r_j);
+    let s_r_p = *r_r_p + (e * *r_p_double_quote);
 
-    let P_ = P - opening.input.O_tilde - opening.input.R;
-
-    let identity = <Ed25519 as Ciphersuite>::G::identity();
-    #[rustfmt::skip]
-    // x,                     y,         x * r_i,  r_p - y' - r_j
-    let matrix = [
-      [G,                     T,         identity, identity], // = O~ = xG + yT
-      [identity,              identity,  U,        T],        // = P_ = x r_i U + (r_p - y' - r_j) T
-      [opening.input.I_tilde, identity, -U,        identity], // = L = x I~ - x r_i U
-    ];
-    let x = Zeroizing::new(opening.x);
-    let y = Zeroizing::new(opening.y);
-    let P__randomness = Zeroizing::new(*r_p - opening.y - opening.r_j);
-    // This transcript the generator matrix, the outputs, and its nonces
-    // The matrix/output transcripting is partially redundant
-    let ([O_tilde_calc, P__calc, L_calc], gsp) = GeneralizedSchnorr::prove(
-      rng,
-      transcript.challenge(b"gsp")[.. 32].try_into().unwrap(),
-      matrix,
-      [&x, &y, &x_r_i, &P__randomness],
-    );
-    debug_assert_eq!(opening.input.O_tilde, O_tilde_calc);
-    debug_assert_eq!(P_, P__calc);
-    debug_assert_eq!(L, L_calc);
-
-    (L, SpendAuthAndLinkability { P, bp_plus: BpPlus { A, B, s_alpha, s_beta, s_delta }, gsp })
+    (
+      L,
+      SpendAuthAndLinkability { P, A, B, R_O, R_P, R_L, s_alpha, s_beta, s_delta, s_y, s_z, s_r_p },
+    )
   }
 
   #[allow(unused, clippy::result_unit_err)]
   pub fn verify(
-    self,
+    &self,
     rng: &mut (impl RngCore + CryptoRng),
     verifier: &mut multiexp::BatchVerifier<(), <Ed25519 as Ciphersuite>::G>,
     signable_tx_hash: [u8; 32],
     input: &Input,
-    key_image: <Ed25519 as Ciphersuite>::G,
-  ) -> Result<(), ()> {
-    todo!("TODO")
+    L: <Ed25519 as Ciphersuite>::G,
+  ) {
+    let G = <Ed25519 as Ciphersuite>::G::generator();
+    let T = EdwardsPoint(T());
+    let U = EdwardsPoint(FCMP_U());
+    let V = EdwardsPoint(FCMP_V());
+
+    let mut transcript = Blake2b512::new();
+    transcript.update(signable_tx_hash);
+    input.transcript(&mut transcript, L);
+
+    transcript.update(self.P.to_bytes());
+    transcript.update(self.A.to_bytes());
+    transcript.update(self.B.to_bytes());
+    transcript.update(self.R_O.to_bytes());
+    transcript.update(self.R_P.to_bytes());
+    transcript.update(self.R_L.to_bytes());
+
+    let e = Scalar(DalekScalar::from_hash(transcript.clone()));
+
+    // BP+ Verification Statement
+    verifier.queue(
+      rng,
+      (),
+      [
+        (e * e, self.P),
+        (e, self.A),
+        (Scalar::ONE, self.B),
+        // RHS
+        (-(self.s_alpha * e), G),
+        (-(self.s_beta * e), V),
+        (-(self.s_alpha * self.s_beta), U),
+        (-self.s_delta, T),
+      ],
+    );
+
+    // O_tilde GSP Verification Statement
+    verifier.queue(
+      rng,
+      (),
+      [
+        (Scalar::ONE, self.R_O),
+        (e, input.O_tilde),
+        // RHS
+        (-self.s_alpha, G),
+        (-self.s_y, T),
+      ],
+    );
+
+    // P' GSP Verification Statement
+    verifier.queue(
+      rng,
+      (),
+      [
+        (Scalar::ONE, self.R_P),
+        (e, (self.P - input.O_tilde - input.R)),
+        // RHS
+        (-self.s_z, U),
+        (-self.s_r_p, T),
+      ],
+    );
+
+    // L GSP Verification Statement
+    verifier.queue(
+      rng,
+      (),
+      [
+        (Scalar::ONE, self.R_L),
+        (e, L),
+        // RHS
+        (-self.s_alpha, input.I_tilde),
+        // This term was supposed to be subtracted, so our negation cancels out
+        (self.s_z, U),
+      ],
+    );
   }
 }
 
@@ -372,7 +424,7 @@ impl FcmpPlusPlus {
       signable_tx_hash,
       &self.input,
       key_image,
-    )?;
+    );
 
     let fcmp_input =
       fcmps::Input::new(self.input.O_tilde, self.input.I_tilde, self.input.R, self.input.C_tilde)

@@ -70,6 +70,8 @@ impl<C: Ciphersuite, const OUTPUTS: usize, const SCALARS: usize, const SCALARS_P
   }
 
   fn challenge(context: [u8; 32], outputs: [C::G; OUTPUTS], nonces: [C::G; OUTPUTS]) -> C::F {
+    // This doesn't transcript the matrix as that's assumed deterministic to the context (as
+    // documented)
     let mut hasher = Blake2b512::new();
     hasher.update(context);
     for output in outputs {

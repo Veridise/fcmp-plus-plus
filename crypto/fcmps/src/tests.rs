@@ -644,3 +644,13 @@ fn verify_benchmark() {
 }
 
 // TODO: Add a test to prove a proof, then malleate every single byte and verify it fails
+
+#[test]
+fn proof_sizes() {
+  for inputs in 0 ..= 256 {
+    println!(
+      "Proof size for {inputs} inputs: {}",
+      Fcmp::<MoneroCurves>::proof_size(inputs, TARGET_LAYERS)
+    );
+  }
+}

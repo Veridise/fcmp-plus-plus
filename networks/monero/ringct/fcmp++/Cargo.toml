@@ -23,13 +23,13 @@ zeroize = "1"
 
 generic-array = { version = "1", default-features = false, features = ["alloc"] }
 
-transcript = { package = "flexible-transcript", path = "../../../../crypto/transcript", features = ["recommended"] }
+blake2 = { version = "0.10", default-features = false }
 
 multiexp = { path = "../../../../crypto/multiexp" }
+curve25519-dalek = { version = "4", default-features = false, features = ["alloc", "zeroize"] }
 dalek-ff-group = { path = "../../../../crypto/dalek-ff-group" }
 ciphersuite = { path = "../../../../crypto/ciphersuite", features = ["ed25519", "helioselene"] }
 
-generalized-schnorr = { path = "../../../../crypto/generalized-schnorr" }
 generalized-bulletproofs = { path = "../../../../crypto/generalized-bulletproofs" }
 ec-divisors = { path = "../../../../crypto/divisors", features = ["ed25519"] }
 generalized-bulletproofs-ec-gadgets = { path = "../../../../crypto/fcmps/ec-gadgets" }

@@ -72,6 +72,16 @@ impl<G: Group> Output<G> {
     }
     Some(Output { O, I, C })
   }
+
+  pub fn O(&self) -> G {
+    self.O
+  }
+  pub fn I(&self) -> G {
+    self.I
+  }
+  pub fn C(&self) -> G {
+    self.C
+  }
 }
 
 /// A struct representing an input tuple.
