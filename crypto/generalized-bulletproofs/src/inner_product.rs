@@ -274,6 +274,12 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
     verifier: &mut BatchVerifier<C>,
     transcript: &mut VerifierTranscript,
   ) -> Result<(), IpError> {
+    if verifier.g_bold.len() < self.generators.len() {
+      verifier.g_bold.resize(self.generators.len(), C::F::ZERO);
+      verifier.h_bold.resize(self.generators.len(), C::F::ZERO);
+      verifier.h_sum.resize(self.generators.len(), C::F::ZERO);
+    }
+
     let IpStatement { generators, h_bold_weights, u, P } = self;
 
     // Calculate the discrete log w.r.t. 2 for the amount of generators present

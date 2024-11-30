@@ -8,6 +8,8 @@ mod blinds;
 pub use blinds::*;
 
 /// The path information for a specific leaf in the tree.
+///
+/// The caller MUST pad the non-leaf branches to the expected layer lengths.
 #[derive(Clone)]
 pub struct Path<C: FcmpCurves>
 where
@@ -245,6 +247,8 @@ where
   <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
   <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
 {
+  // This function executes in variable-time as it pads the path. Paths which aren't full (paths
+  // along the latest edge of the tree) will need padding and have that difference in performance.
   pub(crate) fn transcript_branches(
     &self,
     c1_tape: &mut VectorCommitmentTape<<C::C1 as Ciphersuite>::F>,
@@ -261,6 +265,9 @@ where
           <C::OC as Ciphersuite>::G::to_xy(leaf.C).unwrap().0,
         ]);
       }
+      while flattened_leaves.len() < (3 * LAYER_ONE_LEN) {
+        flattened_leaves.push(<C::C1 as Ciphersuite>::F::ZERO);
+      }
       flattened_leaves
     };
 
@@ -270,13 +277,21 @@ where
       let mut c2 = vec![];
       if let Some(leaves) = &input.branches.leaves {
         let flattened_leaves = flatten_leaves(leaves);
-        c1.push(c1_tape.append_branch::<C::C1>(flattened_leaves.len(), Some(flattened_leaves)));
+        c1.push(c1_tape.append_branch::<C::C1>(3 * LAYER_ONE_LEN, Some(flattened_leaves)));
       }
       for branch in &input.branches.curve_1_layers {
-        c1.push(c1_tape.append_branch::<C::C1>(branch.len(), Some(branch.clone())));
+        let mut branch = branch.clone();
+        while branch.len() < LAYER_ONE_LEN {
+          branch.push(<C::C1 as Ciphersuite>::F::ZERO);
+        }
+        c1.push(c1_tape.append_branch::<C::C1>(LAYER_ONE_LEN, Some(branch.clone())));
       }
       for branch in &input.branches.curve_2_layers {
-        c2.push(c2_tape.append_branch::<C::C2>(branch.len(), Some(branch.clone())));
+        let mut branch = branch.clone();
+        while branch.len() < LAYER_TWO_LEN {
+          branch.push(<C::C2 as Ciphersuite>::F::ZERO);
+        }
+        c2.push(c2_tape.append_branch::<C::C2>(LAYER_TWO_LEN, Some(branch.clone())));
       }
       per_input.push(TranscriptedBranchesPerInput { c1, c2 });
     }

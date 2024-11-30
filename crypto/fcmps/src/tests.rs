@@ -502,8 +502,8 @@ fn verify_fn(
   for _ in 0 .. iters {
     let instant = std::time::Instant::now();
 
-    let mut verifier_1 = params.curve_1_generators.batch_verifier();
-    let mut verifier_2 = params.curve_2_generators.batch_verifier();
+    let mut verifier_1 = generalized_bulletproofs::Generators::batch_verifier();
+    let mut verifier_2 = generalized_bulletproofs::Generators::batch_verifier();
 
     for _ in 0 .. batch {
       proof

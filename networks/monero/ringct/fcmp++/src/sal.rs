@@ -1,3 +1,5 @@
+use std_shims::io;
+
 use rand_core::{RngCore, CryptoRng};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
@@ -6,7 +8,10 @@ use blake2::{Digest, Blake2b512};
 use curve25519_dalek::Scalar as DalekScalar;
 use dalek_ff_group::{Scalar, EdwardsPoint};
 use ciphersuite::{
-  group::{ff::Field, Group, GroupEncoding},
+  group::{
+    ff::{Field, PrimeField},
+    Group, GroupEncoding,
+  },
   Ciphersuite, Ed25519,
 };
 
@@ -19,26 +24,57 @@ pub struct RerandomizedOutput {
   input: Input,
   r_o: <Ed25519 as Ciphersuite>::F,
   r_i: <Ed25519 as Ciphersuite>::F,
-  r_j: <Ed25519 as Ciphersuite>::F,
+  r_r_i: <Ed25519 as Ciphersuite>::F,
   r_c: <Ed25519 as Ciphersuite>::F,
 }
 
 impl RerandomizedOutput {
-  pub fn new(
-    rng: &mut (impl RngCore + CryptoRng),
-    output: Output,
-  ) -> RerandomizedOutput {
+  pub fn new(rng: &mut (impl RngCore + CryptoRng), output: Output) -> RerandomizedOutput {
     let r_o = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
     let r_i = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
-    let r_j = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
+    let r_r_i = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
     let r_c = <Ed25519 as Ciphersuite>::F::random(&mut *rng);
 
     let O_tilde = output.O() + (EdwardsPoint(T()) * r_o);
     let I_tilde = output.I() + (EdwardsPoint(FCMP_U()) * r_i);
-    let R = (EdwardsPoint(FCMP_V()) * r_i) + (EdwardsPoint(T()) * r_j);
+    let R = (EdwardsPoint(FCMP_V()) * r_i) + (EdwardsPoint(T()) * r_r_i);
     let C_tilde = output.C() + (<Ed25519 as Ciphersuite>::generator() * r_c);
 
-    RerandomizedOutput { input: Input { O_tilde, I_tilde, R, C_tilde }, r_o, r_i, r_j, r_c }
+    RerandomizedOutput { input: Input { O_tilde, I_tilde, R, C_tilde }, r_o, r_i, r_r_i, r_c }
+  }
+
+  pub fn write(&self, writer: &mut impl io::Write) -> io::Result<()> {
+    self.input.write(writer)?;
+    writer.write_all(&self.r_o.to_repr())?;
+    writer.write_all(&self.r_i.to_repr())?;
+    writer.write_all(&self.r_r_i.to_repr())?;
+    writer.write_all(&self.r_c.to_repr())
+  }
+
+  pub fn read(reader: &mut impl io::Read) -> io::Result<Self> {
+    Ok(Self {
+      input: Input::read(reader)?,
+      r_o: Ed25519::read_F(reader)?,
+      r_i: Ed25519::read_F(reader)?,
+      r_r_i: Ed25519::read_F(reader)?,
+      r_c: Ed25519::read_F(reader)?,
+    })
+  }
+
+  // The FCMP code expects these as used in the proof, which adds these blinds to the blinded
+  // values to recover the original values (requiring their negation)
+  pub fn o_blind(&self) -> <Ed25519 as Ciphersuite>::F {
+    -self.r_o
+  }
+  pub fn i_blind(&self) -> <Ed25519 as Ciphersuite>::F {
+    -self.r_i
+  }
+  // I's blind's blind is kept in its actual form
+  pub fn i_blind_blind(&self) -> <Ed25519 as Ciphersuite>::F {
+    self.r_r_i
+  }
+  pub fn c_blind(&self) -> <Ed25519 as Ciphersuite>::F {
+    -self.r_c
   }
 
   pub fn input(&self) -> Input {
@@ -55,9 +91,9 @@ pub struct OpenedInputTuple {
   // O~ = xG + yT
   x: <Ed25519 as Ciphersuite>::F,
   y: <Ed25519 as Ciphersuite>::F,
-  // R = r_i V + r_j T
+  // R = r_i V + r_r_i T
   r_i: <Ed25519 as Ciphersuite>::F,
-  r_j: <Ed25519 as Ciphersuite>::F,
+  r_r_i: <Ed25519 as Ciphersuite>::F,
 }
 
 impl OpenedInputTuple {
@@ -80,7 +116,7 @@ impl OpenedInputTuple {
       x: *x,
       y: y_tilde,
       r_i: rerandomized_output.r_i,
-      r_j: rerandomized_output.r_j,
+      r_r_i: rerandomized_output.r_r_i,
     })
   }
 }
@@ -158,7 +194,7 @@ impl SpendAuthAndLinkability {
     // z is x_r_i
     let s_z = *r_z + (e * *x_r_i);
     // r_p is overloaded into r_p' and r_p'' by the paper, hence this distinguishing
-    let r_p_double_quote = Zeroizing::new(*r_p - opening.y - opening.r_j);
+    let r_p_double_quote = Zeroizing::new(*r_p - opening.y - opening.r_r_i);
     let s_r_p = *r_r_p + (e * *r_p_double_quote);
 
     (
@@ -167,7 +203,7 @@ impl SpendAuthAndLinkability {
     )
   }
 
-  #[allow(unused, clippy::result_unit_err)]
+  #[allow(clippy::result_unit_err)]
   pub fn verify(
     &self,
     rng: &mut (impl RngCore + CryptoRng),

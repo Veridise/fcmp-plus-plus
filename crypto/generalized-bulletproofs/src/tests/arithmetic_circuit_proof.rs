@@ -3,7 +3,7 @@ use rand_core::{RngCore, OsRng};
 use ciphersuite::{group::ff::Field, Ciphersuite, Ristretto};
 
 use crate::{
-  ScalarVector, PedersenCommitment, PedersenVectorCommitment,
+  ScalarVector, PedersenCommitment, PedersenVectorCommitment, Generators,
   transcript::*,
   arithmetic_circuit_proof::{
     Variable, LinComb, ArithmeticCircuitStatement, ArithmeticCircuitWitness,
@@ -43,7 +43,7 @@ fn test_zero_arithmetic_circuit() {
     statement.clone().prove(&mut OsRng, &mut transcript, witness).unwrap();
     transcript.complete()
   };
-  let mut verifier = generators.batch_verifier();
+  let mut verifier = Generators::batch_verifier();
 
   let mut transcript = VerifierTranscript::new([0; 32], &proof);
   let verifier_commmitments = transcript.read_commitments(0, 1);
@@ -93,7 +93,7 @@ fn test_vector_commitment_arithmetic_circuit() {
     statement.clone().prove(&mut OsRng, &mut transcript, witness).unwrap();
     transcript.complete()
   };
-  let mut verifier = generators.batch_verifier();
+  let mut verifier = Generators::batch_verifier();
 
   let mut transcript = VerifierTranscript::new([0; 32], &proof);
   let verifier_commmitments = transcript.read_commitments(1, 0);
@@ -211,7 +211,7 @@ fn fuzz_test_arithmetic_circuit() {
       statement.clone().prove(&mut OsRng, &mut transcript, witness).unwrap();
       transcript.complete()
     };
-    let mut verifier = generators.batch_verifier();
+    let mut verifier = Generators::batch_verifier();
 
     let mut transcript = VerifierTranscript::new([0; 32], &proof);
     let verifier_commmitments = transcript.read_commitments(C.len(), V.len());

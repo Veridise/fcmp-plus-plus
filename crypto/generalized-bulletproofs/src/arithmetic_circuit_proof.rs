@@ -499,6 +499,12 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     verifier: &mut BatchVerifier<C>,
     transcript: &mut VerifierTranscript,
   ) -> Result<(), AcError> {
+    if verifier.g_bold.len() < self.generators.len() {
+      verifier.g_bold.resize(self.generators.len(), C::F::ZERO);
+      verifier.h_bold.resize(self.generators.len(), C::F::ZERO);
+      verifier.h_sum.resize(self.generators.len(), C::F::ZERO);
+    }
+
     let n = self.n();
     let c = self.c();
 

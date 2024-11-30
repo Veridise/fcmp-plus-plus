@@ -472,8 +472,8 @@ where
   ///
   /// This function MAY panic upon an invalid witness, despite returning a result.
   ///
-  /// This function is not guaranteed to be constant time if the path witnessed isn't full due to
-  /// being on the right-most edge.
+  /// This functions runs in variable-time for paths which aren't full (paths which run along the
+  /// latest edge of the tree).
   #[allow(clippy::too_many_arguments, clippy::result_unit_err)]
   pub fn prove<R: RngCore + CryptoRng>(
     rng: &mut R,
@@ -682,7 +682,7 @@ where
     let (c1_statement, c1_witness) = c1_circuit
       .statement(params.curve_1_generators.reduce(c1_padded_pow_2).ok_or(())?, commitments_1)
       .map_err(|_| ())?;
-    c1_statement.clone().prove(rng, &mut transcript, c1_witness.ok_or(())?).map_err(|_| ())?;
+    c1_statement.prove(rng, &mut transcript, c1_witness.ok_or(())?).map_err(|_| ())?;
 
     let (c2_statement, c2_witness) = c2_circuit
       .statement(params.curve_2_generators.reduce(c2_padded_pow_2).ok_or(())?, commitments_2)

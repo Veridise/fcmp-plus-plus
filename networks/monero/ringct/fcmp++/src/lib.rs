@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use std_shims::sync::OnceLock;
+use std_shims::{sync::OnceLock, io};
 
 use rand_core::{RngCore, CryptoRng};
 use zeroize::Zeroize;
@@ -9,6 +9,7 @@ use generic_array::typenum::{Sum, Diff, Quot, U, U1, U2};
 
 use blake2::{Digest, Blake2b512};
 
+use dalek_ff_group::EdwardsPoint;
 use ciphersuite::{
   group::{ff::PrimeField, GroupEncoding},
   Ciphersuite, Ed25519, Helios, Selene,
@@ -21,6 +22,7 @@ use fcmps::*;
 
 use monero_io::write_varint;
 use monero_primitives::keccak256;
+use monero_generators::{T, FCMP_U, FCMP_V};
 
 /// The Spend-Authorization and Linkability proof.
 pub mod sal;
@@ -80,21 +82,18 @@ fn hash_to_point_on_curve<C: Ciphersuite>(buf: &[u8]) -> C::G {
 }
 
 static HELIOS_HASH_INIT_CELL: OnceLock<<Helios as Ciphersuite>::G> = OnceLock::new();
-#[allow(non_snake_case)]
 pub fn HELIOS_HASH_INIT() -> <Helios as Ciphersuite>::G {
   *HELIOS_HASH_INIT_CELL
     .get_or_init(|| hash_to_point_on_curve::<Helios>(b"Monero Helios Hash Initializer"))
 }
 
 static SELENE_HASH_INIT_CELL: OnceLock<<Selene as Ciphersuite>::G> = OnceLock::new();
-#[allow(non_snake_case)]
 pub fn SELENE_HASH_INIT() -> <Selene as Ciphersuite>::G {
   *SELENE_HASH_INIT_CELL
     .get_or_init(|| hash_to_point_on_curve::<Selene>(b"Monero Selene Hash Initializer"))
 }
 
 static HELIOS_GENERATORS_CELL: OnceLock<Generators<Helios>> = OnceLock::new();
-#[allow(non_snake_case)]
 pub fn HELIOS_GENERATORS() -> &'static Generators<Helios> {
   HELIOS_GENERATORS_CELL.get_or_init(|| {
     let g = hash_to_point_on_curve::<Helios>(b"Monero Helios G");
@@ -115,7 +114,6 @@ pub fn HELIOS_GENERATORS() -> &'static Generators<Helios> {
 }
 
 static SELENE_GENERATORS_CELL: OnceLock<Generators<Selene>> = OnceLock::new();
-#[allow(non_snake_case)]
 pub fn SELENE_GENERATORS() -> &'static Generators<Selene> {
   SELENE_GENERATORS_CELL.get_or_init(|| {
     let g = hash_to_point_on_curve::<Selene>(b"Monero Selene G");
@@ -135,15 +133,49 @@ pub fn SELENE_GENERATORS() -> &'static Generators<Selene> {
   })
 }
 
+static FCMP_PARAMS_CELL: OnceLock<FcmpParams<Curves>> = OnceLock::new();
+pub fn FCMP_PARAMS() -> &'static FcmpParams<Curves> {
+  FCMP_PARAMS_CELL.get_or_init(|| {
+    FcmpParams::<Curves>::new(
+      SELENE_GENERATORS().clone(),
+      HELIOS_GENERATORS().clone(),
+      // Hash init generators
+      SELENE_HASH_INIT(),
+      HELIOS_HASH_INIT(),
+      // G, T, U, V
+      <Ed25519 as Ciphersuite>::generator(),
+      EdwardsPoint(T()),
+      EdwardsPoint(FCMP_U()),
+      EdwardsPoint(FCMP_V()),
+    )
+  })
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
 pub struct Input {
   O_tilde: <Ed25519 as Ciphersuite>::G,
   I_tilde: <Ed25519 as Ciphersuite>::G,
-  C_tilde: <Ed25519 as Ciphersuite>::G,
   R: <Ed25519 as Ciphersuite>::G,
+  C_tilde: <Ed25519 as Ciphersuite>::G,
 }
 
 impl Input {
+  fn write(&self, writer: &mut impl io::Write) -> io::Result<()> {
+    writer.write_all(&self.O_tilde.to_bytes())?;
+    writer.write_all(&self.I_tilde.to_bytes())?;
+    writer.write_all(&self.R.to_bytes())?;
+    writer.write_all(&self.C_tilde.to_bytes())
+  }
+
+  fn read(reader: &mut impl io::Read) -> io::Result<Input> {
+    Ok(Self {
+      O_tilde: Ed25519::read_G(reader)?,
+      I_tilde: Ed25519::read_G(reader)?,
+      R: Ed25519::read_G(reader)?,
+      C_tilde: Ed25519::read_G(reader)?,
+    })
+  }
+
   fn transcript(&self, transcript: &mut Blake2b512, L: <Ed25519 as Ciphersuite>::G) {
     transcript.update(self.O_tilde.to_bytes());
     transcript.update(self.I_tilde.to_bytes());
@@ -157,44 +189,42 @@ pub type Output = fcmps::Output<<Ed25519 as Ciphersuite>::G>;
 
 #[derive(Clone, Debug, Zeroize)]
 pub struct FcmpPlusPlus {
-  input: Input,
+  inputs: Vec<(Input, SpendAuthAndLinkability)>,
   fcmp: Fcmp<Curves>,
-  spend_auth_and_linkability: SpendAuthAndLinkability,
 }
 
 impl FcmpPlusPlus {
-  pub fn new(
-    input: Input,
-    fcmp: Fcmp<Curves>,
-    spend_auth_and_linkability: SpendAuthAndLinkability,
-  ) -> FcmpPlusPlus {
-    FcmpPlusPlus { input, fcmp, spend_auth_and_linkability }
+  pub fn new(inputs: Vec<(Input, SpendAuthAndLinkability)>, fcmp: Fcmp<Curves>) -> FcmpPlusPlus {
+    FcmpPlusPlus { inputs, fcmp }
   }
+
+  // TODO: proof_len, write, read
+  // TODO: pseudo_outs?
 
   #[allow(clippy::too_many_arguments, clippy::result_unit_err)]
   pub fn verify(
-    self,
+    &self,
     rng: &mut (impl RngCore + CryptoRng),
     verifier_ed: &mut multiexp::BatchVerifier<(), <Ed25519 as Ciphersuite>::G>,
     verifier_1: &mut generalized_bulletproofs::BatchVerifier<Selene>,
     verifier_2: &mut generalized_bulletproofs::BatchVerifier<Helios>,
-    params: &FcmpParams<Curves>,
     tree: TreeRoot<<Curves as FcmpCurves>::C1, <Curves as FcmpCurves>::C2>,
     layers: usize,
     signable_tx_hash: [u8; 32],
-    key_image: <Ed25519 as Ciphersuite>::G,
+    key_images: Vec<<Ed25519 as Ciphersuite>::G>,
   ) -> Result<(), ()> {
-    self.spend_auth_and_linkability.verify(
-      rng,
-      verifier_ed,
-      signable_tx_hash,
-      &self.input,
-      key_image,
-    );
+    if self.inputs.len() != key_images.len() {
+      Err(())?;
+    }
 
-    let fcmp_input =
-      fcmps::Input::new(self.input.O_tilde, self.input.I_tilde, self.input.R, self.input.C_tilde)
-        .ok_or(())?;
-    self.fcmp.verify(rng, verifier_1, verifier_2, params, tree, layers, &[fcmp_input])
+    let mut fcmp_inputs = Vec::with_capacity(self.inputs.len());
+    for ((input, spend_auth_and_linkability), key_image) in self.inputs.iter().zip(key_images) {
+      spend_auth_and_linkability.verify(rng, verifier_ed, signable_tx_hash, input, key_image);
+
+      fcmp_inputs
+        .push(fcmps::Input::new(input.O_tilde, input.I_tilde, input.R, input.C_tilde).ok_or(())?);
+    }
+
+    self.fcmp.verify(rng, verifier_1, verifier_2, FCMP_PARAMS(), tree, layers, &fcmp_inputs)
   }
 }

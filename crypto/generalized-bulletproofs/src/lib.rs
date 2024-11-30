@@ -170,15 +170,15 @@ impl<C: Ciphersuite> Generators<C> {
     Ok(Generators { g, h, g_bold, h_bold, h_sum })
   }
 
-  /// Create a BatchVerifier for proofs which use these generators.
-  pub fn batch_verifier(&self) -> BatchVerifier<C> {
+  /// Create a BatchVerifier for proofs which use a consistent set of generators.
+  pub fn batch_verifier() -> BatchVerifier<C> {
     BatchVerifier {
       g: C::F::ZERO,
       h: C::F::ZERO,
 
-      g_bold: vec![C::F::ZERO; self.g_bold.len()],
-      h_bold: vec![C::F::ZERO; self.h_bold.len()],
-      h_sum: vec![C::F::ZERO; self.h_sum.len()],
+      g_bold: vec![],
+      h_bold: vec![],
+      h_sum: vec![],
 
       additional: Vec::with_capacity(128),
     }
