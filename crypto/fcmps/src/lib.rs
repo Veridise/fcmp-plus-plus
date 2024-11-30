@@ -1,7 +1,7 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![doc = include_str!("../README.md")]
 #![cfg_attr(not(feature = "std"), no_std)]
-// #![deny(missing_docs)] TODO
+#![deny(missing_docs)]
 #![allow(non_snake_case)]
 
 use core::{marker::PhantomData, borrow::Borrow};
@@ -44,12 +44,17 @@ use tape::*;
 mod params;
 pub use params::*;
 
+/// Functions for tree building and maintenance.
 pub mod tree;
 
 #[cfg(test)]
 mod tests;
 
+/// The length of branches proved for on the first layer.
+///
+/// The leaves layer is thrice as wide.
 pub const LAYER_ONE_LEN: usize = 38;
+/// The length of branches proved for on the second layer.
 pub const LAYER_TWO_LEN: usize = 18;
 #[cfg(test)]
 const TARGET_LAYERS: usize = 8;
@@ -70,6 +75,9 @@ pub struct Output<G: Group> {
 }
 
 impl<G: Group> Output<G> {
+  /// Construct a new Output tuple.
+  ///
+  /// Returns None if any of the points are the identity point.
   pub fn new(O: G, I: G, C: G) -> Option<Self> {
     if bool::from(O.is_identity()) || bool::from(I.is_identity()) || bool::from(C.is_identity()) {
       None?
@@ -77,12 +85,15 @@ impl<G: Group> Output<G> {
     Some(Output { O, I, C })
   }
 
+  /// The O element of the output tuple.
   pub fn O(&self) -> G {
     self.O
   }
+  /// The I element of the output tuple.
   pub fn I(&self) -> G {
     self.I
   }
+  /// The C element of the output tuple.
   pub fn C(&self) -> G {
     self.C
   }
@@ -98,6 +109,9 @@ pub struct Input<F: PrimeField> {
 }
 
 impl<F: PrimeField> Input<F> {
+  /// Construct a new input tuple.
+  ///
+  /// Returns None if any of the points are the identity point.
   pub fn new<G: DivisorCurve<FieldElement = F>>(
     O_tilde: G,
     I_tilde: G,
@@ -116,7 +130,9 @@ impl<F: PrimeField> Input<F> {
 /// A tree root, represented as a point from either curve.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TreeRoot<C1: Ciphersuite, C2: Ciphersuite> {
+  /// A root on the first curve.
   C1(C1::G),
+  /// A root on the second curve.
   C2(C2::G),
 }
 
@@ -169,6 +185,9 @@ where
     (pad(c1_rows).max(C1_TARGET_ROWS), pad(c2_rows).max(C2_TARGET_ROWS))
   }
 
+  /// The proof size for a FCMP proving for so many inputs in a tree with so many layers.
+  ///
+  /// This is not as fast as presumable and should have its results cached.
   pub fn proof_size(inputs: usize, layers: usize) -> usize {
     let mut proof_elements = 16; // AI, AO, AS, tau_x, u, t_caret, a, b for each BP
 
@@ -704,6 +723,8 @@ where
     Ok(res)
   }
 
+  /// Verify an FCMP.
+  ///
   /// This MAY panic if called with invalid arguments, such as a tree root which doesn't correspond
   /// to the layer count.
   #[allow(clippy::too_many_arguments, clippy::result_unit_err)]
@@ -953,6 +974,7 @@ where
     Ok(())
   }
 
+  /// Read an FCMP.
   pub fn read(reader: &mut impl io::Read, inputs: usize, layers: usize) -> io::Result<Self> {
     let mut proof = vec![0; Self::proof_size(inputs, layers) - 64];
     reader.read_exact(&mut proof)?;
@@ -961,6 +983,7 @@ where
     Ok(Self { _curves: PhantomData, proof, root_blind_pok })
   }
 
+  /// Write a FCMP.
   pub fn write(&self, writer: &mut impl io::Write) -> io::Result<()> {
     writer.write_all(&self.proof)?;
     writer.write_all(&self.root_blind_pok)

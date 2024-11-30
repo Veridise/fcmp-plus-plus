@@ -19,9 +19,13 @@ where
   <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
   <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
 {
+  /// The output being proven for.
   pub output: Output<<C::OC as Ciphersuite>::G>,
+  /// The leaves along this path.
   pub leaves: Vec<Output<<C::OC as Ciphersuite>::G>>,
+  /// The branches on this path proven for with the second curve.
   pub curve_2_layers: Vec<Vec<<C::C2 as Ciphersuite>::F>>,
+  /// The branches on this path proven for with the first curve.
   pub curve_1_layers: Vec<Vec<<C::C1 as Ciphersuite>::F>>,
 }
 
@@ -86,6 +90,7 @@ where
   pub(crate) branches: BranchesWithoutRootBranch<C>,
 }
 
+/// The blinded branches for a multi-input FCMP proof.
 pub struct BranchesWithBlinds<C: FcmpCurves>
 where
   <C::OC as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
@@ -104,6 +109,9 @@ where
   <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
   <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
 {
+  /// Create a new set of Branches from a set of paths.
+  ///
+  /// Returns None if the paths don't belong to the same tree.
   pub fn new(paths: Vec<Path<C>>) -> Option<Self> {
     let mut paths = paths.into_iter();
 
@@ -183,16 +191,21 @@ where
     Some(Branches { per_input, root })
   }
 
+  /// The amount of branch blinds needed on the first curve.
   pub fn necessary_c1_blinds(&self) -> usize {
     self.per_input.len() *
       (usize::from(u8::from(self.per_input[0].1.leaves.is_some())) +
         self.per_input[0].1.curve_1_layers.len())
   }
 
+  /// The amount of branch blinds needed on the second curve.
   pub fn necessary_c2_blinds(&self) -> usize {
     self.per_input.len() * self.per_input[0].1.curve_2_layers.len()
   }
 
+  /// Blind these branches with the specified blinds.
+  ///
+  /// Returns None if the wrong quantity of blinds are provided.
   pub fn blind(
     self,
     output_blinds: Vec<OutputBlinds<<C::OC as Ciphersuite>::G>>,

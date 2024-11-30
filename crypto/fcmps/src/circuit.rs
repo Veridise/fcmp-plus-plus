@@ -14,15 +14,26 @@ pub(crate) use generalized_bulletproofs_circuit_abstraction::Transcript;
 
 use crate::*;
 
-/// Every curve is expected to have a 32-byte encoding for scalars and points.
+/// The curves used with the FCMP.
+///
+/// Every curve is expected to have a 32-byte encoding for scalars and points. Every curve is
+/// expected to only use 255 bits to represent scalars. Other bounds asserted at runtime may exist.
 pub trait FcmpCurves {
+  /// The curve of the leaf elements.
+  ///
+  /// The amount of bits used to represent scalars must be less than or equal to 253.
   type OC: Ciphersuite;
+  /// The Discrete-Log gadget parameters for the curve of the leaf elements.
   type OcParameters: DiscreteLogParameters;
 
+  /// The curve for the first set of branches.
   type C1: Ciphersuite;
+  /// The Discrete-Log gadget parameters for the curve of the first set of branches.
   type C1Parameters: DiscreteLogParameters;
 
+  /// The curve for the second set of branches.
   type C2: Ciphersuite;
+  /// The Discrete-Log gadget parameters for the curve of the second set of branches.
   type C2Parameters: DiscreteLogParameters;
 }
 

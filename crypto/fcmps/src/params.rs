@@ -37,6 +37,7 @@ where
   <C::C1 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C2 as Ciphersuite>::F>,
   <C::C2 as Ciphersuite>::G: DivisorCurve<FieldElement = <C::C1 as Ciphersuite>::F>,
 {
+  /// Create a new set of parameters.
   #[allow(clippy::too_many_arguments)]
   pub fn new(
     curve_1_generators: Generators<C::C1>,
