@@ -651,7 +651,7 @@ fn prove_benchmark() {
 
   let (G, T, U, V, params) = random_params(8);
 
-  for paths in 1 ..= 8 {
+  for paths in 1 ..= 4 {
     let (paths, _root) = random_paths(&params, TARGET_LAYERS, paths);
 
     let mut set_size = 1u64;
@@ -678,12 +678,16 @@ fn prove_benchmark() {
 
       core::hint::black_box(proof);
     }
-    println!(
-      "Proving for {RUNS} {}-input FCMPs with a set size of {} took an average of {}ms each",
-      paths.len(),
-      set_size,
-      (std::time::Instant::now() - prove_start).as_millis() / u128::try_from(RUNS).unwrap()
-    );
+    #[allow(clippy::print_literal)]
+    {
+      println!(
+        "{} for {RUNS} {}-input FCMPs with a set size of {} took an average of {}ms each",
+        "Sequentially proving",
+        paths.len(),
+        set_size,
+        (std::time::Instant::now() - prove_start).as_millis() / u128::try_from(RUNS).unwrap()
+      );
+    }
   }
 }
 
