@@ -57,6 +57,8 @@ pub trait DivisorCurve: Group + ConstantTimeEq + ConditionallySelectable + Zeroi
   /// Convert a point to its x and y coordinates.
   ///
   /// Returns None if passed the point at infinity.
+  ///
+  /// This function may run in time variable to if the point is the identity.
   fn to_xy(point: Self) -> Option<(Self::FieldElement, Self::FieldElement)>;
 }
 
@@ -505,6 +507,7 @@ mod pasta {
 
 #[cfg(any(test, feature = "ed25519"))]
 mod ed25519 {
+  use subtle::{Choice, ConditionallySelectable};
   use group::{
     ff::{Field, PrimeField},
     Group, GroupEncoding,
@@ -552,9 +555,13 @@ mod ed25519 {
         ((D * edwards_y_sq) + Self::FieldElement::ONE).invert().unwrap())
       .sqrt()
       .unwrap();
-      if u8::from(bool::from(edwards_x.is_odd())) != x_is_odd {
-        edwards_x = -edwards_x;
-      }
+
+      // Negate the x coordinate if the sign doesn't match
+      edwards_x = <_>::conditional_select(
+        &edwards_x,
+        &-edwards_x,
+        edwards_x.is_odd() ^ Choice::from(x_is_odd),
+      );
 
       // Calculate the x and y coordinates for Wei25519
       let edwards_y_plus_one = Self::FieldElement::ONE + edwards_y;
