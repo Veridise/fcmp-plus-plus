@@ -1,9 +1,11 @@
+#[cfg(any(feature = "alloc", feature = "std"))]
+use std_shims::io::{self, Read};
+
 use zeroize::Zeroize;
 
 use blake2::{Digest, Blake2b512};
 
-use group::Group;
-
+use group::{Group, GroupEncoding};
 use helioselene::{Field25519, HelioseleneField, HeliosPoint, SelenePoint};
 
 use crate::Ciphersuite;
@@ -37,6 +39,19 @@ impl Ciphersuite for Helios {
     uniform.zeroize();
     res
   }
+
+  // We override the provided impl, which compares against the reserialization, because
+  // Helios::G::from_bytes already enforces canonically encoded points
+  #[cfg(any(feature = "alloc", feature = "std"))]
+  #[allow(non_snake_case)]
+  fn read_G<R: Read>(reader: &mut R) -> io::Result<Self::G> {
+    let mut encoding = <Self::G as GroupEncoding>::Repr::default();
+    reader.read_exact(encoding.as_mut())?;
+
+    let point = Option::<Self::G>::from(Self::G::from_bytes(&encoding))
+      .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid point"))?;
+    Ok(point)
+  }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroize)]
@@ -67,6 +82,19 @@ impl Ciphersuite for Selene {
     let res = Field25519::wide_reduce(uniform);
     uniform.zeroize();
     res
+  }
+
+  // We override the provided impl, which compares against the reserialization, because
+  // Selene::G::from_bytes already enforces canonically encoded points
+  #[cfg(any(feature = "alloc", feature = "std"))]
+  #[allow(non_snake_case)]
+  fn read_G<R: Read>(reader: &mut R) -> io::Result<Self::G> {
+    let mut encoding = <Self::G as GroupEncoding>::Repr::default();
+    reader.read_exact(encoding.as_mut())?;
+
+    let point = Option::<Self::G>::from(Self::G::from_bytes(&encoding))
+      .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid point"))?;
+    Ok(point)
   }
 }
 

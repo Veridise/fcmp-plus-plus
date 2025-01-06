@@ -111,6 +111,9 @@ pub trait Ciphersuite:
   }
 
   /// Read a canonical point from something implementing std::io::Read.
+  ///
+  /// The provided implementation is safe so long as `GroupEncoding::to_bytes` always returns a
+  /// canonical serialization.
   #[cfg(any(feature = "alloc", feature = "std"))]
   #[allow(non_snake_case)]
   fn read_G<R: Read>(reader: &mut R) -> io::Result<Self::G> {
