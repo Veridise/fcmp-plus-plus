@@ -311,6 +311,11 @@ impl FcmpPlusPlus {
   ///
   /// `signable_tx_hash` must be binding to the transaction prefix, the RingCT base, and the
   /// pseudo-outs.
+  ///
+  /// This only queues the proofs for batch verification. The BatchVerifiers MUST also be verified.
+  ///
+  /// If this function returns an error, the BatchVerifiers MUST be considered corrupted and
+  /// discarded.
   #[allow(clippy::too_many_arguments)]
   pub fn verify(
     &self,

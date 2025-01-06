@@ -271,6 +271,8 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
   /// This will return Err if there is an error. This will return Ok if the proof was successfully
   /// queued for batch verification. The caller is required to verify the batch in order to ensure
   /// the proof is actually correct.
+  ///
+  /// If this proof returns an error, the BatchVerifier MUST be assumed corrupted and discarded.
   pub(crate) fn verify(
     self,
     verifier: &mut BatchVerifier<C>,

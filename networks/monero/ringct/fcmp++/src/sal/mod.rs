@@ -253,6 +253,11 @@ impl SpendAuthAndLinkability {
   }
 
   /// Verify a Spend-Authorization and Linkability proof.
+  ///
+  /// This only queues the proof for batch verification. The BatchVerifier MUST also be verified.
+  ///
+  /// If this function returns an error, the BatchVerifier MUST be considered corrupted and
+  /// discarded.
   #[allow(clippy::result_unit_err)]
   pub fn verify(
     &self,

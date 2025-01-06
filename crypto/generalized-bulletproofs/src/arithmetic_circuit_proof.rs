@@ -495,6 +495,11 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
   }
 
   /// Verify a proof for this statement.
+  ///
+  /// This solely queues the statement for batch verification. The resulting BatchVerifier MUST
+  /// still be verified.
+  ///
+  /// If this proof returns an error, the BatchVerifier MUST be assumed corrupted and discarded.
   pub fn verify<R: RngCore + CryptoRng>(
     self,
     rng: &mut R,
