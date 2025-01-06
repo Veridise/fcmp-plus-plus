@@ -132,18 +132,30 @@ impl<'a> VerifierTranscript<'a> {
   }
 
   pub(crate) fn read_scalar<C: Ciphersuite>(&mut self) -> io::Result<C::F> {
-    let scalar = C::read_F(&mut self.transcript)?;
+    // Read the scalar onto the transcript using the serialization present in the transcript
     self.digest.update([SCALAR]);
-    let bytes = scalar.to_repr();
-    self.digest.update(bytes);
+    let scalar_len = <C::F as PrimeField>::Repr::default().as_ref().len();
+    if self.transcript.len() < scalar_len {
+      Err(io::Error::new(io::ErrorKind::Other, "not enough bytes to read_scalar"))?;
+    }
+    self.digest.update(&self.transcript[.. scalar_len]);
+
+    // Read the actual scalar, where `read_F` ensures its canonically serialized
+    let scalar = C::read_F(&mut self.transcript)?;
     Ok(scalar)
   }
 
   pub(crate) fn read_point<C: Ciphersuite>(&mut self) -> io::Result<C::G> {
-    let point = C::read_G(&mut self.transcript)?;
+    // Read the point onto the transcript using the serialization present in the transcript
     self.digest.update([POINT]);
-    let bytes = point.to_bytes();
-    self.digest.update(bytes);
+    let point_len = <C::G as GroupEncoding>::Repr::default().as_ref().len();
+    if self.transcript.len() < point_len {
+      Err(io::Error::new(io::ErrorKind::Other, "not enough bytes to read_point"))?;
+    }
+    self.digest.update(&self.transcript[.. point_len]);
+
+    // Read the actual point, where `read_G` ensures its canonically serialized
+    let point = C::read_G(&mut self.transcript)?;
     Ok(point)
   }
 
