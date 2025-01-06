@@ -356,7 +356,7 @@ impl<C: Ciphersuite> EcDlogGadgets<C> for Circuit<C> {
     let sign_of_point_0 = (sign_of_points[0] & 1) == 1;
     let sign_of_point_1 = ((sign_of_points[0] >> 1) & 1) == 1;
     let (c0_x, c0_y) = loop {
-      let c0_x: C::F = transcript.challenge();
+      let c0_x = transcript.challenge::<C>();
       let Some(c0_y) =
         Option::<C::F>::from(((c0_x.square() * c0_x) + (curve.a * c0_x) + curve.b).sqrt())
       else {
@@ -367,7 +367,7 @@ impl<C: Ciphersuite> EcDlogGadgets<C> for Circuit<C> {
       break (c0_x, if bool::from(c0_y.is_odd()) != sign_of_point_0 { -c0_y } else { c0_y });
     };
     let (c1_x, c1_y) = loop {
-      let c1_x: C::F = transcript.challenge();
+      let c1_x = transcript.challenge::<C>();
       let Some(c1_y) =
         Option::<C::F>::from(((c1_x.square() * c1_x) + (curve.a * c1_x) + curve.b).sqrt())
       else {

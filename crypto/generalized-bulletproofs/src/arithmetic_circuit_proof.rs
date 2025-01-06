@@ -292,8 +292,8 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     transcript.push_point(AI);
     transcript.push_point(AO);
     transcript.push_point(S);
-    let y = transcript.challenge();
-    let z = transcript.challenge();
+    let y = transcript.challenge::<C>();
+    let z = transcript.challenge::<C>();
     let YzChallenges { y_inv, z } = self.yz_challenges(y, z);
     let y = ScalarVector::powers(y, n);
 
@@ -416,7 +416,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
       transcript.push_point(multiexp(&[(*t, self.generators.g()), (*tau, self.generators.h())]));
     }
 
-    let x: ScalarVector<C::F> = ScalarVector::powers(transcript.challenge(), t.len());
+    let x: ScalarVector<C::F> = ScalarVector::powers(transcript.challenge::<C>(), t.len());
 
     let poly_eval = |poly: &[ScalarVector<C::F>], x: &ScalarVector<_>| -> ScalarVector<_> {
       let mut res = ScalarVector::<C::F>::new(poly[0].0.len());
@@ -480,7 +480,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     transcript.push_scalar(tau_x);
     transcript.push_scalar(u);
     transcript.push_scalar(t_caret);
-    let ip_x = transcript.challenge();
+    let ip_x = transcript.challenge::<C>();
     P_terms.push((ip_x * t_caret, self.generators.g()));
     IpStatement::new(
       self.generators,
@@ -523,8 +523,8 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     let AI = transcript.read_point::<C>().map_err(|_| AcError::IncompleteProof)?;
     let AO = transcript.read_point::<C>().map_err(|_| AcError::IncompleteProof)?;
     let S = transcript.read_point::<C>().map_err(|_| AcError::IncompleteProof)?;
-    let y = transcript.challenge();
-    let z = transcript.challenge();
+    let y = transcript.challenge::<C>();
+    let z = transcript.challenge::<C>();
     let YzChallenges { y_inv, z } = self.yz_challenges(y, z);
 
     let mut l_weights = ScalarVector::new(n);
@@ -547,7 +547,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
     for _ in 0 .. (t_poly_len - ni - 1) {
       T_after_ni.push(transcript.read_point::<C>().map_err(|_| AcError::IncompleteProof)?);
     }
-    let x: ScalarVector<C::F> = ScalarVector::powers(transcript.challenge(), t_poly_len);
+    let x: ScalarVector<C::F> = ScalarVector::powers(transcript.challenge::<C>(), t_poly_len);
 
     let tau_x = transcript.read_scalar::<C>().map_err(|_| AcError::IncompleteProof)?;
     let u = transcript.read_scalar::<C>().map_err(|_| AcError::IncompleteProof)?;
@@ -645,7 +645,7 @@ impl<'a, C: Ciphersuite> ArithmeticCircuitStatement<'a, C> {
 
     // Prove for lines 88, 92 with an Inner-Product statement
     // This inlines Protocol 1, as our IpStatement implements Protocol 2
-    let ip_x = transcript.challenge();
+    let ip_x = transcript.challenge::<C>();
     // P is amended with this additional term
     verifier.g += verifier_weight * ip_x * t_caret;
     IpStatement::new(self.generators, y_inv, ip_x, P::Verifier { verifier_weight })

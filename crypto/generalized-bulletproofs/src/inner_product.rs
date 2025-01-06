@@ -188,7 +188,7 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
       // Now that we've calculate L, R, transcript them to receive x (26-27)
       transcript.push_point(L);
       transcript.push_point(R);
-      let x: C::F = transcript.challenge();
+      let x: C::F = transcript.challenge::<C>();
       let x_inv = x.invert().unwrap();
 
       // The prover and verifier now calculate the following (28-31)
@@ -304,7 +304,7 @@ impl<'a, C: Ciphersuite> IpStatement<'a, C> {
     for _ in 0 .. lr_len {
       L.push(transcript.read_point::<C>().map_err(|_| IpError::IncompleteProof)?);
       R.push(transcript.read_point::<C>().map_err(|_| IpError::IncompleteProof)?);
-      xs.push(transcript.challenge());
+      xs.push(transcript.challenge::<C>());
     }
 
     // We calculate their inverse in batch

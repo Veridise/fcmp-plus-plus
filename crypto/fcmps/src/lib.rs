@@ -644,13 +644,13 @@ where
 
     let mut root_blind_pok = [0; 64];
     if matches!(tree, TreeRoot::C1(_)) {
-      let s = *root_blind_r_C1.unwrap() +
-        (transcript.challenge::<<C::C1 as Ciphersuite>::F>() * root_blind_C1.unwrap());
+      let s =
+        *root_blind_r_C1.unwrap() + (transcript.challenge::<C::C1>() * root_blind_C1.unwrap());
       root_blind_pok[.. 32].copy_from_slice(&root_blind_R);
       root_blind_pok[32 ..].copy_from_slice(s.to_repr().as_ref());
     } else {
-      let s = *root_blind_r_C2.unwrap() +
-        (transcript.challenge::<<C::C2 as Ciphersuite>::F>() * root_blind_C2.unwrap());
+      let s =
+        *root_blind_r_C2.unwrap() + (transcript.challenge::<C::C2>() * root_blind_C2.unwrap());
       root_blind_pok[.. 32].copy_from_slice(&root_blind_R);
       root_blind_pok[32 ..].copy_from_slice(s.to_repr().as_ref());
     }
@@ -912,7 +912,7 @@ where
           let R = <C::C1 as Ciphersuite>::read_G(&mut self.root_blind_pok[.. 32].as_ref())?;
           let s = <C::C1 as Ciphersuite>::read_F(&mut self.root_blind_pok[32 ..].as_ref())?;
 
-          let c: <C::C1 as Ciphersuite>::F = transcript.challenge();
+          let c = transcript.challenge::<C::C1>();
 
           // R + cX == sH, where X is the difference in the roots
           // (which should only be the randomness, and H is the generator for the randomness)
@@ -925,7 +925,7 @@ where
           let R = <C::C2 as Ciphersuite>::read_G(&mut self.root_blind_pok[.. 32].as_ref())?;
           let s = <C::C2 as Ciphersuite>::read_F(&mut self.root_blind_pok[32 ..].as_ref())?;
 
-          let c: <C::C2 as Ciphersuite>::F = transcript.challenge();
+          let c = transcript.challenge::<C::C2>();
 
           // R + cX == sH, where X is the difference in the roots
           // (which should only be the randomness, and H is the generator for the randomness)

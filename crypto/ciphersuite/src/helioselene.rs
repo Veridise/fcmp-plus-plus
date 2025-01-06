@@ -21,6 +21,12 @@ impl Ciphersuite for Helios {
     <HeliosPoint as Group>::generator()
   }
 
+  fn reduce_512(mut scalar: [u8; 64]) -> Self::F {
+    let res = HelioseleneField::wide_reduce(scalar);
+    scalar.zeroize();
+    res
+  }
+
   fn hash_to_F(dst: &[u8], msg: &[u8]) -> Self::F {
     let mut uniform = [0; 64];
     let mut hash = Blake2b512::digest([dst, msg].concat());
@@ -44,6 +50,12 @@ impl Ciphersuite for Selene {
 
   fn generator() -> Self::G {
     <SelenePoint as Group>::generator()
+  }
+
+  fn reduce_512(mut scalar: [u8; 64]) -> Self::F {
+    let res = Field25519::wide_reduce(scalar);
+    scalar.zeroize();
+    res
   }
 
   fn hash_to_F(dst: &[u8], msg: &[u8]) -> Self::F {

@@ -8,10 +8,7 @@ use std_shims::{vec, vec::Vec};
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use ciphersuite::{
-  group::ff::{Field, PrimeField},
-  Ciphersuite,
-};
+use ciphersuite::{group::ff::Field, Ciphersuite};
 
 use generalized_bulletproofs::{
   ScalarVector, PedersenCommitment, PedersenVectorCommitment, ProofGenerators,
@@ -29,7 +26,7 @@ pub trait Transcript {
   ///
   /// It is the caller's responsibility to have properly transcripted all variables prior to
   /// sampling this challenge.
-  fn challenge<F: PrimeField>(&mut self) -> F;
+  fn challenge<C: Ciphersuite>(&mut self) -> C::F;
 
   /// Sample a challenge as a byte array.
   ///
@@ -38,16 +35,16 @@ pub trait Transcript {
   fn challenge_bytes(&mut self) -> [u8; 64];
 }
 impl Transcript for ProverTranscript {
-  fn challenge<F: PrimeField>(&mut self) -> F {
-    self.challenge()
+  fn challenge<C: Ciphersuite>(&mut self) -> C::F {
+    self.challenge::<C>()
   }
   fn challenge_bytes(&mut self) -> [u8; 64] {
     self.challenge_bytes()
   }
 }
 impl Transcript for VerifierTranscript<'_> {
-  fn challenge<F: PrimeField>(&mut self) -> F {
-    self.challenge()
+  fn challenge<C: Ciphersuite>(&mut self) -> C::F {
+    self.challenge::<C>()
   }
   fn challenge_bytes(&mut self) -> [u8; 64] {
     self.challenge_bytes()

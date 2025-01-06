@@ -3,7 +3,10 @@ use std_shims::{vec::Vec, io};
 use blake2::{Digest, Blake2b512};
 
 use ciphersuite::{
-  group::{ff::PrimeField, GroupEncoding},
+  group::{
+    ff::{Field, PrimeField},
+    GroupEncoding,
+  },
   Ciphersuite,
 };
 
@@ -13,26 +16,11 @@ const SCALAR: u8 = 0;
 const POINT: u8 = 1;
 const CHALLENGE: u8 = 2;
 
-fn challenge<F: PrimeField>(digest: &mut Blake2b512) -> F {
-  // Ensure this field is small enough this is a successful wide reduction
-  assert!(F::NUM_BITS <= (512 - 128));
-
+fn challenge<C: Ciphersuite>(digest: &mut Blake2b512) -> C::F {
   digest.update([CHALLENGE]);
-  let chl = digest.clone().finalize();
+  let chl = digest.clone().finalize().into();
 
-  let mut res = F::ZERO;
-  for (i, mut byte) in chl.iter().cloned().enumerate() {
-    for j in 0 .. 8 {
-      let lsb = byte & 1;
-      let mut bit = F::from(u64::from(lsb));
-      for _ in 0 .. ((i * 8) + j) {
-        bit = bit.double();
-      }
-      res += bit;
-
-      byte >>= 1;
-    }
-  }
+  let res = C::reduce_512(chl);
 
   // Negligible probability
   if bool::from(res.is_zero()) {
@@ -113,8 +101,8 @@ impl Transcript {
   }
 
   /// Sample a challenge.
-  pub fn challenge<F: PrimeField>(&mut self) -> F {
-    challenge(&mut self.digest)
+  pub fn challenge<C: Ciphersuite>(&mut self) -> C::F {
+    challenge::<C>(&mut self.digest)
   }
 
   /// Sample a challenge as a byte array.
@@ -182,8 +170,8 @@ impl<'a> VerifierTranscript<'a> {
   }
 
   /// Sample a challenge.
-  pub fn challenge<F: PrimeField>(&mut self) -> F {
-    challenge(&mut self.digest)
+  pub fn challenge<C: Ciphersuite>(&mut self) -> C::F {
+    challenge::<C>(&mut self.digest)
   }
 
   /// Sample a challenge as a byte array.
