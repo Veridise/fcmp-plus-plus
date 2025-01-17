@@ -703,12 +703,9 @@ fn verify_benchmark() {
   let output_blinds = random_output_blinds(G, T, U, V);
   let input = output_blinds.blind(&output).unwrap();
 
-  let proof = Fcmp::prove(
-    &mut OsRng,
-    &params,
-    blind_branches(&params, branches, vec![output_blinds]),
-  )
-  .unwrap();
+  let proof =
+    Fcmp::prove(&mut OsRng, &params, blind_branches(&params, branches, vec![output_blinds]))
+      .unwrap();
 
   verify_fn(100, 1, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
   verify_fn(100, 10, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
