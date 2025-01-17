@@ -234,13 +234,13 @@ where
       }
     }
 
-    let mut c1_tape = VectorCommitmentTape {
+    let mut c1_tape = VectorCommitmentTape::<<C::C1 as Ciphersuite>::F> {
       commitment_len: c1_padded_pow_2,
       current_j_offset: 0,
       commitments: vec![],
     };
     let mut c1_branches = Vec::with_capacity((layers / 2) + (layers % 2));
-    let mut c2_tape = VectorCommitmentTape {
+    let mut c2_tape = VectorCommitmentTape::<<C::C2 as Ciphersuite>::F> {
       commitment_len: c2_padded_pow_2,
       current_j_offset: 0,
       commitments: vec![],
@@ -252,17 +252,17 @@ where
     for _ in 0 .. inputs {
       for i in 0 .. (layers - 1) {
         if (i % 2) == 0 {
-          c1_branches.push(c1_tape.append_branch::<C::C1>(0, None));
+          c1_branches.push(c1_tape.append_branch(0, None));
         } else {
-          c2_branches.push(c2_tape.append_branch::<C::C2>(0, None));
+          c2_branches.push(c2_tape.append_branch(0, None));
         }
       }
     }
 
     if (layers % 2) == 1 {
-      c1_tape.append_branch::<C::C1>(0, None);
+      c1_tape.append_branch(0, None);
     } else {
-      c2_tape.append_branch::<C::C2>(0, None);
+      c2_tape.append_branch(0, None);
     }
 
     for _ in 0 .. inputs {
@@ -575,12 +575,12 @@ where
         1,
     );
 
-    let mut c1_tape = VectorCommitmentTape {
+    let mut c1_tape = VectorCommitmentTape::<<C::C1 as Ciphersuite>::F> {
       commitment_len: c1_padded_pow_2,
       current_j_offset: 0,
       commitments: vec![],
     };
-    let mut c2_tape = VectorCommitmentTape {
+    let mut c2_tape = VectorCommitmentTape::<<C::C2 as Ciphersuite>::F> {
       commitment_len: c2_padded_pow_2,
       current_j_offset: 0,
       commitments: vec![],
@@ -783,13 +783,13 @@ where
 
     let (c1_padded_pow_2, c2_padded_pow_2) = Self::ipa_rows(inputs.len(), layers);
 
-    let mut c1_tape = VectorCommitmentTape {
+    let mut c1_tape = VectorCommitmentTape::<<C::C1 as Ciphersuite>::F> {
       commitment_len: c1_padded_pow_2,
       current_j_offset: 0,
       commitments: vec![],
     };
     let mut c1_branches = Vec::with_capacity((layers / 2) + (layers % 2));
-    let mut c2_tape = VectorCommitmentTape {
+    let mut c2_tape = VectorCommitmentTape::<<C::C2 as Ciphersuite>::F> {
       commitment_len: c2_padded_pow_2,
       current_j_offset: 0,
       commitments: vec![],
@@ -801,21 +801,19 @@ where
       for i in 0 .. (layers - 1) {
         if (i % 2) == 0 {
           c1_branches.push(
-            c1_tape
-              .append_branch::<C::C1>(if i == 0 { 3 * LAYER_ONE_LEN } else { LAYER_ONE_LEN }, None),
+            c1_tape.append_branch(if i == 0 { 3 * LAYER_ONE_LEN } else { LAYER_ONE_LEN }, None),
           );
         } else {
-          c2_branches.push(c2_tape.append_branch::<C::C2>(LAYER_TWO_LEN, None));
+          c2_branches.push(c2_tape.append_branch(LAYER_TWO_LEN, None));
         }
       }
     }
 
     // Append the root branch to the tape
     let root = if (layers % 2) == 1 {
-      c1_tape
-        .append_branch::<C::C1>(if layers == 1 { 3 * LAYER_ONE_LEN } else { LAYER_ONE_LEN }, None)
+      c1_tape.append_branch(if layers == 1 { 3 * LAYER_ONE_LEN } else { LAYER_ONE_LEN }, None)
     } else {
-      c2_tape.append_branch::<C::C2>(LAYER_TWO_LEN, None)
+      c2_tape.append_branch(LAYER_TWO_LEN, None)
     };
 
     // Transcript the inputs

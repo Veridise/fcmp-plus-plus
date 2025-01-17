@@ -35,7 +35,7 @@ fn test_sal_legacy_multisig() {
     OsRng,
     RecommendedTranscript::new(b"SpendAuthAndLinkability Legacy Multisig Test"),
     [0; 32],
-    rerandomized_output.clone(),
+    rerandomized_output,
     y,
   );
 

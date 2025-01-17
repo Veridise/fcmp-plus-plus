@@ -706,13 +706,13 @@ fn verify_benchmark() {
   let proof = Fcmp::prove(
     &mut OsRng,
     &params,
-    blind_branches(&params, branches.clone(), vec![output_blinds]),
+    blind_branches(&params, branches, vec![output_blinds]),
   )
   .unwrap();
 
   verify_fn(100, 1, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
   verify_fn(100, 10, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
-  verify_fn(100, 100, proof.clone(), &params, root, TARGET_LAYERS, &[input]);
+  verify_fn(100, 100, proof, &params, root, TARGET_LAYERS, &[input]);
 }
 
 #[test]

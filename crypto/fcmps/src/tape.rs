@@ -7,7 +7,7 @@ use generic_array::{typenum::Unsigned, GenericArray};
 use multiexp::multiexp;
 use ciphersuite::{group::ff::PrimeFieldBits, Ciphersuite};
 
-use ec_divisors::{Poly, DivisorCurve};
+use ec_divisors::Poly;
 use generalized_bulletproofs::Generators;
 
 use crate::{
@@ -53,14 +53,11 @@ impl<F: Zeroize + PrimeFieldBits> VectorCommitmentTape<F> {
   }
 
   // This must be called before all other appends
-  pub(crate) fn append_branch<C: Ciphersuite>(
+  pub(crate) fn append_branch(
     &mut self,
     branch_len: usize,
     branch: Option<Vec<F>>,
-  ) -> Vec<Variable>
-  where
-    C::G: DivisorCurve<Scalar = F>,
-  {
+  ) -> Vec<Variable> {
     // Make sure we're at the start of a commitment as this needs its own dedicated commitment
     assert_eq!(self.current_j_offset, 0);
 

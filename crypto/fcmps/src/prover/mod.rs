@@ -290,21 +290,21 @@ where
       let mut c2 = vec![];
       if let Some(leaves) = &input.branches.leaves {
         let flattened_leaves = flatten_leaves(leaves);
-        c1.push(c1_tape.append_branch::<C::C1>(3 * LAYER_ONE_LEN, Some(flattened_leaves)));
+        c1.push(c1_tape.append_branch(3 * LAYER_ONE_LEN, Some(flattened_leaves)));
       }
       for branch in &input.branches.curve_1_layers {
         let mut branch = branch.clone();
         while branch.len() < LAYER_ONE_LEN {
           branch.push(<C::C1 as Ciphersuite>::F::ZERO);
         }
-        c1.push(c1_tape.append_branch::<C::C1>(LAYER_ONE_LEN, Some(branch.clone())));
+        c1.push(c1_tape.append_branch(LAYER_ONE_LEN, Some(branch.clone())));
       }
       for branch in &input.branches.curve_2_layers {
         let mut branch = branch.clone();
         while branch.len() < LAYER_TWO_LEN {
           branch.push(<C::C2 as Ciphersuite>::F::ZERO);
         }
-        c2.push(c2_tape.append_branch::<C::C2>(LAYER_TWO_LEN, Some(branch.clone())));
+        c2.push(c2_tape.append_branch(LAYER_TWO_LEN, Some(branch.clone())));
       }
       per_input.push(TranscriptedBranchesPerInput { c1, c2 });
     }
@@ -312,10 +312,10 @@ where
     let root = match &self.root {
       RootBranch::Leaves(leaves) => {
         let flattened_leaves = flatten_leaves(leaves);
-        c1_tape.append_branch::<C::C1>(flattened_leaves.len(), Some(flattened_leaves.clone()))
+        c1_tape.append_branch(flattened_leaves.len(), Some(flattened_leaves))
       }
-      RootBranch::C1(branch) => c1_tape.append_branch::<C::C1>(branch.len(), Some(branch.clone())),
-      RootBranch::C2(branch) => c2_tape.append_branch::<C::C2>(branch.len(), Some(branch.clone())),
+      RootBranch::C1(branch) => c1_tape.append_branch(branch.len(), Some(branch.clone())),
+      RootBranch::C2(branch) => c2_tape.append_branch(branch.len(), Some(branch.clone())),
     };
 
     TranscriptedBranches { per_input, root }

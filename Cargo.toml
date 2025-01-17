@@ -2,8 +2,6 @@
 resolver = "2"
 members = [
   "common/std-shims",
-  "common/zalloc",
-  "common/request",
 
   "crypto/transcript",
 

@@ -565,7 +565,7 @@ impl<F: From<u64> + Zeroize + PrimeField> Poly<F> {
     quotient = conditional_select_poly(
       quotient,
       // If the dividing coefficient was for y**0 x**0, we return the poly scaled by its inverse
-      self.clone() * denominator_dividing_coefficient_inv,
+      self * denominator_dividing_coefficient_inv,
       denominator_dividing_coefficient.ct_eq(&CoefficientIndex { y_pow: 0, x_pow: 0 }),
     );
     remainder = conditional_select_poly(
