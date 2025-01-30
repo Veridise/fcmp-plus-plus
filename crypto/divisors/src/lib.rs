@@ -278,6 +278,8 @@ pub struct ScalarDecomposition<F: Zeroize + PrimeFieldBits> {
 impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
   /// Decompose a non-zero scalar.
   ///
+  /// Returns `None` if the scalar is zero.
+  ///
   /// This function is constant time if the scalar is non-zero.
   pub fn new(scalar: F) -> Option<Self> {
     if bool::from(scalar.is_zero()) {
@@ -429,6 +431,8 @@ impl<F: Zeroize + PrimeFieldBits> ScalarDecomposition<F> {
   /// The divisor will interpolate $-(s \cdot G)$ with $d_i$ instances of $2^i \cdot G$.
   ///
   /// This function executes in constant time with regards to the scalar.
+  ///
+  /// This function MAY panic if the generator is the point at infinity.
   pub fn scalar_mul_divisor<C: Zeroize + DivisorCurve<Scalar = F>>(
     &self,
     mut generator: C,
