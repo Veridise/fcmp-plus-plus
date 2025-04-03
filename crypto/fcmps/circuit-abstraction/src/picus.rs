@@ -203,18 +203,30 @@ impl<F: PrimeField> PicusModule<F> {
     for constraint in &circuit.constraints {
       let mut var_to_coefficient: HashMap<_, _> = HashMap::<PicusVariable, PicusExpression<F>>::new();
       for (index, coefficient) in constraint.WL() {
+        let coefficient: PicusExpression<F> = PicusTerm::Constant(coefficient.clone()).into();
         let picus_variable = self.circuit_variable_to_picus_variable(&Variable::aL(*index), circuit).unwrap();
-        let _ = *var_to_coefficient.entry(picus_variable).or_insert(zero.clone());
+        let _ = *var_to_coefficient.entry(picus_variable)
+          .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
+          .or_insert(coefficient);
       }
       for (index, coefficient) in constraint.WR() {
+        let coefficient: PicusExpression<F> = PicusTerm::Constant(coefficient.clone()).into();
         let picus_variable = self.circuit_variable_to_picus_variable(&Variable::aR(*index), circuit).unwrap();
-        let _ = *var_to_coefficient.entry(picus_variable).or_insert(zero.clone());
+        let _ = *var_to_coefficient.entry(picus_variable)
+          .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
+          .or_insert(coefficient);
       }
       for (index, coefficient) in constraint.WO() {
+        let coefficient: PicusExpression<F> = PicusTerm::Constant(coefficient.clone()).into();
         let picus_variable = self.circuit_variable_to_picus_variable(&Variable::aO(*index), circuit).unwrap();
-        let _ = *var_to_coefficient.entry(picus_variable).or_insert(zero.clone());
+        let _ = *var_to_coefficient.entry(picus_variable)
+          .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
+          .or_insert(coefficient);
       }
-      let terms = var_to_coefficient.into_iter()
+      let terms = (0..self.num_variables()).into_iter()
+          .filter_map(|picus_index| var_to_coefficient.get(&PicusVariable(picus_index))
+            .map(|coeff| (PicusVariable(picus_index), coeff.clone()))
+          )
           .map(|(variable, coefficient)| coefficient * variable.into())
         .collect::<Vec<PicusExpression<C::F>>>();
       let maybe_sum = terms.into_iter()
@@ -302,6 +314,9 @@ impl DisplayWithContext for PicusVariable {
 }
 
 fn bigint_to_decimal(bigint: U256) -> String {
+  if bigint.eq(&U256::ZERO) {
+    return "0".to_string();
+  }
   let mut bigint = bigint;
   let mut digits: Vec<String> = vec![];
   let ten = NonZero::new(U256::from_u8(10u8)).unwrap();
@@ -321,7 +336,7 @@ impl<F: PrimeField> DisplayWithContext for PicusTerm<F> {
       PicusTerm::Constant(value) => {
         let repr = value.to_repr();
         let repr_bytes: &[u8] = repr.as_ref();
-        let bigint: U256 = U256::from_le_bytes(repr_bytes.try_into().unwrap());
+        let bigint: U256 = U256::from_be_bytes(repr_bytes.try_into().unwrap());
         let decimal_representation = bigint_to_decimal(bigint);
         write!(f, "{}", decimal_representation)
       }
@@ -365,7 +380,7 @@ impl<F: PrimeField> Display for PicusModule<F> {
     write!(f, "(begin-module {})\n", self.name)?;
 
     // Print declarations
-    for variable in &self.input_variables {
+    for variable in &self.input_variables.iter().sort() {
       write!(f, "  (input {})\n", variable.with(&self.context))?;
     }
     for variable_index in (0..self.num_variables())
@@ -434,6 +449,11 @@ use generalized_bulletproofs::arithmetic_circuit_proof::{LinComb, Variable};
       prover: None
     };
     let (l, r, o) = circuit.mul(None, None, None);
+    let mut lincomb = LinComb::empty()
+      .term(F::ONE, l)
+      .term(F::ONE, r)
+      .term(F::ONE.negate(), o);
+    circuit.constrain_equal_to_zero(lincomb);
 
     let mut module: PicusModule<F> = PicusModule::new("main".to_string());
     module.apply_constraints(&circuit);
@@ -449,6 +469,7 @@ use generalized_bulletproofs::arithmetic_circuit_proof::{LinComb, Variable};
   (input aL_0)
   (input aR_0)
   (output aO_0)
+  (assert (= (+ (+ (* 1 aL_0) (* 1 aR_0)) (* 115792089237316195423570985008687907852837564279074904382605163141518161494336 aO_0)) 0))
   (assert (= (* aL_0 aR_0) aO_0))
 (end-module)\n"
     );
