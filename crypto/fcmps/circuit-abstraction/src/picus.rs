@@ -53,7 +53,7 @@ impl PicusContext {
 }
 
 /// Represents a variable in the circuit with a unique index.
-#[derive(Eq, Hash, PartialEq, Clone, Copy)]
+#[derive(Eq, Hash, PartialEq, Clone, Copy, PartialOrd, Ord)]
 struct PicusVariable(usize);
 
 #[derive(Clone)]
@@ -380,7 +380,9 @@ impl<F: PrimeField> Display for PicusModule<F> {
     write!(f, "(begin-module {})\n", self.name)?;
 
     // Print declarations
-    for variable in &self.input_variables.iter().sort() {
+    let mut sorted_inputs = self.input_variables.iter().cloned().collect::<Vec<_>>();
+    sorted_inputs.sort();
+    for variable in sorted_inputs {
       write!(f, "  (input {})\n", variable.with(&self.context))?;
     }
     for variable_index in (0..self.num_variables())
