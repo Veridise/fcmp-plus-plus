@@ -186,9 +186,14 @@ impl<F: PrimeField> PicusModule<F> {
       return Err("Constraint has wcg != 0".to_string());
     }
 
+    // Make sure no existing variables
+    if self.num_variables() > 0 {
+      return Err(format!("Module already has {} > 0 variables defined", self.num_variables()));
+    }
+
     // Make sure we have enough variables
-    for base_name in vec!["aL", "aR", "aO"] {
-      for i in self.num_variables()..circuit.muls() {
+    for (vector_index, base_name) in vec!["aL", "aR", "aO"].into_iter().enumerate() {
+      for i in 0..circuit.muls() {
         self.fresh_variable(Some(&format!("{}_{}", base_name, i)))?;
       }
     }
@@ -234,7 +239,7 @@ impl<F: PrimeField> PicusModule<F> {
   }
 
   #[must_use]
-  fn circuit_variable_to_picus_variable<C: Ciphersuite>(&self, var: &Variable, circuit: &Circuit<C>) -> Option<PicusVariable> {
+  pub fn circuit_variable_to_picus_variable<C: Ciphersuite>(&self, var: &Variable, circuit: &Circuit<C>) -> Option<PicusVariable> {
     let picus_index = match var {
         Variable::aL(index) => Some(*index),
         Variable::aR(index) => Some(*index + circuit.muls()),
@@ -394,12 +399,14 @@ impl<F: PrimeField> Display for PicusProgram<F> {
 // pub fn compile_to_picus(circuit: &Circuit) -> String {}
 //
 mod tests {
-  use crate::picus::{PicusProgram, PicusModule};
+  use crate::{picus::{PicusModule, PicusProgram}, Circuit};
   use ciphersuite::{Ciphersuite, Secp256k1};
+use generalized_bulletproofs::arithmetic_circuit_proof::{LinComb, Variable};
 
   // https://www.cs.utexas.edu/~moore/acl2/manuals/current/manual/index-seo.php?xkey=PRIMES____SECP256K1-GROUP-PRIME
   // 115792089237316195423570985008687907852837564279074904382605163141518161494337
-  type F = <Secp256k1 as Ciphersuite>::F;
+  type C = Secp256k1;
+  type F = <C as Ciphersuite>::F;
 
   #[test]
   fn test_picus_program_display() -> Result<(), String> {
@@ -414,6 +421,35 @@ mod tests {
 (begin-module main)
   (input var0)
   (output var1)
+(end-module)\n"
+    );
+    Ok(())
+  }
+
+  #[test]
+  fn test_circuit_to_picus() -> Result<(), String> {
+    let mut circuit: Circuit<C> = Circuit::<C> {
+      constraints: vec![],
+      muls: 0,
+      prover: None
+    };
+    let (l, r, o) = circuit.mul(None, None, None);
+
+    let mut module: PicusModule<F> = PicusModule::new("main".to_string());
+    module.apply_constraints(&circuit);
+    module.mark_variable_as_input(module.circuit_variable_to_picus_variable(&l, &circuit).unwrap());
+    module.mark_variable_as_input(module.circuit_variable_to_picus_variable(&r, &circuit).unwrap());
+
+    let program = PicusProgram::new(vec![module]);
+    let program_text = program.to_string();
+    assert_eq!(
+      program_text,
+      "(prime-number 115792089237316195423570985008687907852837564279074904382605163141518161494337)
+(begin-module main)
+  (input aL_0)
+  (input aR_0)
+  (output aO_0)
+  (assert (= (* aL_0 aR_0) aO_0))
 (end-module)\n"
     );
     Ok(())
