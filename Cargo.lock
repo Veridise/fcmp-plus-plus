@@ -473,6 +473,7 @@ name = "generalized-bulletproofs-circuit-abstraction"
 version = "0.1.0"
 dependencies = [
  "ciphersuite",
+ "crypto-bigint",
  "generalized-bulletproofs",
  "std-shims",
  "zeroize",

@@ -1,15 +1,19 @@
-use core::char::decode_utf16;
 use core::fmt;
 use core::fmt::{Display, Formatter};
+use core::ops::{Add, Mul, Sub};
 use std::collections::{HashMap, HashSet};
 
-use ciphersuite::group::ff::PrimeField;
-use crypto_bigint::{Encoding, Integer, NonZero, U256};
+use ciphersuite::group::ff::{Field, PrimeField};
+use ciphersuite::Ciphersuite;
+use crypto_bigint::{Encoding, NonZero, U256};
+use generalized_bulletproofs::arithmetic_circuit_proof::Variable;
+
+use crate::Circuit;
 
 struct PicusContext {
-  num_variables: u32,
+  num_variables: usize,
   variable_names: HashSet<String>,
-  variable_index_to_names: HashMap<u32, String>,
+  variable_index_to_names: HashMap<usize, String>,
 }
 
 impl PicusContext {
@@ -22,31 +26,37 @@ impl PicusContext {
   }
 
   /// Adds a new variable to the program context.
-  fn add_variable(&mut self, name: &str) -> Result<u32, String> {
-    if self.variable_names.contains(name) {
-      return Err(format!("Variable name {} already exists", name));
+  fn add_variable(&mut self, name: Option<&str>) -> Result<usize, String> {
+    let index = self.num_variables;
+    match name {
+      Some(name) => {
+        if self.variable_names.contains(name) {
+          return Err(format!("Variable name {} already exists", name));
+        }
+        self.variable_names.insert(name.to_string());
+        self.variable_index_to_names.insert(index, name.to_string());
+      }
+      _ => {}
     }
-    self.variable_names.insert(name.to_string());
-    let index = self.variable_index_to_names.len() as u32;
-    self.variable_index_to_names.insert(index, name.to_string());
     self.num_variables += 1;
     Ok(index)
   }
 
   /// Retrieves the name of a variable given its index.
-  fn get_variable_name(&self, index: u32) -> Option<&String> {
+  fn get_variable_name(&self, index: usize) -> Option<&String> {
     self.variable_index_to_names.get(&index)
   }
 
-  fn get_num_variables(&self) -> u32 {
+  fn get_num_variables(&self) -> usize {
     self.num_variables
   }
 }
 
 /// Represents a variable in the circuit with a unique index.
 #[derive(Eq, Hash, PartialEq, Clone, Copy)]
-struct PicusVariable(u32);
+struct PicusVariable(usize);
 
+#[derive(Clone)]
 enum PicusTerm<F: PrimeField> {
   ///Hard-coded constant value.
   Constant(F),
@@ -54,11 +64,13 @@ enum PicusTerm<F: PrimeField> {
   Variable(PicusVariable),
 }
 
+#[derive(Clone)]
 struct BinaryOperatorArgs<F: PrimeField> {
   left: Box<PicusExpression<F>>,
   right: Box<PicusExpression<F>>,
 }
 
+#[derive(Clone)]
 enum PicusExpression<F: PrimeField> {
   PicusTerm(PicusTerm<F>),
   IsEqual(BinaryOperatorArgs<F>),
@@ -83,6 +95,55 @@ pub struct PicusProgram<F: PrimeField> {
   modules: Vec<PicusModule<F>>,
 }
 
+impl<F: PrimeField> Into<PicusTerm<F>> for PicusVariable {
+    fn into(self) -> PicusTerm<F> {
+      PicusTerm::Variable(self)
+    }
+}
+
+impl<F: PrimeField> Into<PicusExpression<F>> for PicusTerm<F> {
+    fn into(self) -> PicusExpression<F> {
+      PicusExpression::PicusTerm(self)
+    }
+}
+
+impl<F: PrimeField> Into<PicusExpression<F>> for PicusVariable {
+    fn into(self) -> PicusExpression<F> {
+      let term: PicusTerm<F> = self.into();
+      term.into()
+    }
+}
+
+impl<F: PrimeField> Mul for PicusExpression<F> {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+      PicusExpression::Multiply(BinaryOperatorArgs { left: Box::new(self), right: Box::new(rhs) })
+    }
+}
+
+impl<F: PrimeField> Add for PicusExpression<F> {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+      PicusExpression::Add(BinaryOperatorArgs { left: Box::new(self), right: Box::new(rhs) })
+    }
+}
+
+impl<F: PrimeField> Sub for PicusExpression<F> {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+      PicusExpression::Subtract(BinaryOperatorArgs { left: Box::new(self), right: Box::new(rhs) })
+    }
+}
+
+impl<F: PrimeField> PicusExpression<F> {
+  pub fn is_equal(self, rhs: Self) -> Self {
+    PicusExpression::IsEqual(BinaryOperatorArgs { left: Box::new(self), right: Box::new(rhs) })
+  }
+}
+
 impl<F: PrimeField> PicusModule<F> {
   pub fn new(name: String) -> Self {
     PicusModule {
@@ -93,12 +154,13 @@ impl<F: PrimeField> PicusModule<F> {
     }
   }
 
-  pub fn num_variables(&self) -> u32 {
+  pub fn num_variables(&self) -> usize {
     self.context.get_num_variables()
   }
 
-  pub fn fresh_variable(&mut self, name: &str) -> Result<PicusVariable, String> {
-    self.context.add_variable(name).map(|var| PicusVariable(var))
+  #[must_use]
+  pub fn fresh_variable(&mut self, maybe_name: Option<&str>) -> Result<PicusVariable, String> {
+    self.context.add_variable(maybe_name).map(|var| PicusVariable(var))
   }
 
   #[must_use]
@@ -108,6 +170,79 @@ impl<F: PrimeField> PicusModule<F> {
     }
     self.input_variables.insert(variable);
     Ok(())
+  }
+
+  #[must_use]
+  pub fn apply_constraints<C>(&mut self, circuit: &Circuit<C>) -> Result<(), String>
+  where C: Ciphersuite<F = F>
+  {
+    // Ensure we can support the lincombs
+    let some_wv = circuit.constraints.iter().any(|constraint| constraint.WV().len() > 0);
+    if some_wv {
+      return Err("Constraint has WV != 0".to_string());
+    }
+    let some_wcg = circuit.constraints.iter().any(|constraint| constraint.WCG().len() > 0);
+    if some_wcg {
+      return Err("Constraint has wcg != 0".to_string());
+    }
+
+    // Make sure we have enough variables
+    for base_name in vec!["aL", "aR", "aO"] {
+      for i in self.num_variables()..circuit.muls() {
+        self.fresh_variable(Some(&format!("{}_{}", base_name, i)))?;
+      }
+    }
+
+    // Apply linear constraints
+    let zero: PicusExpression<F> = PicusTerm::Constant(<C::F as Field>::ZERO).into();
+    for constraint in &circuit.constraints {
+      let mut var_to_coefficient: HashMap<_, _> = HashMap::<PicusVariable, PicusExpression<F>>::new();
+      for (index, coefficient) in constraint.WL() {
+        let picus_variable = self.circuit_variable_to_picus_variable(&Variable::aL(*index), circuit).unwrap();
+        let _ = *var_to_coefficient.entry(picus_variable).or_insert(zero.clone());
+      }
+      for (index, coefficient) in constraint.WR() {
+        let picus_variable = self.circuit_variable_to_picus_variable(&Variable::aR(*index), circuit).unwrap();
+        let _ = *var_to_coefficient.entry(picus_variable).or_insert(zero.clone());
+      }
+      for (index, coefficient) in constraint.WO() {
+        let picus_variable = self.circuit_variable_to_picus_variable(&Variable::aO(*index), circuit).unwrap();
+        let _ = *var_to_coefficient.entry(picus_variable).or_insert(zero.clone());
+      }
+      let terms = var_to_coefficient.into_iter()
+          .map(|(variable, coefficient)| coefficient * variable.into())
+        .collect::<Vec<PicusExpression<C::F>>>();
+      let maybe_sum = terms.into_iter()
+        .reduce(|cumulative_sum, expr| cumulative_sum + expr);
+      let sum = match maybe_sum {
+          Some(sum) => sum,
+          None => continue,
+      };
+      self.statements.push(PicusStatement::Assert(sum.is_equal(zero.clone())));
+    }
+    // Apply quadratic constraints
+    for i in 0..circuit.muls() {
+      let aL: PicusExpression<F> = self.circuit_variable_to_picus_variable(&Variable::aL(i), circuit).unwrap().into();
+      let aR: PicusExpression<F> = self.circuit_variable_to_picus_variable(&Variable::aR(i), circuit).unwrap().into();
+      let aO: PicusExpression<F> = self.circuit_variable_to_picus_variable(&Variable::aO(i), circuit).unwrap().into();
+      self.statements.push(
+        PicusStatement::Assert((aL * aR).is_equal(aO))
+      );
+    }
+
+    Ok(())
+  }
+
+  #[must_use]
+  fn circuit_variable_to_picus_variable<C: Ciphersuite>(&self, var: &Variable, circuit: &Circuit<C>) -> Option<PicusVariable> {
+    let picus_index = match var {
+        Variable::aL(index) => Some(*index),
+        Variable::aR(index) => Some(*index + circuit.muls()),
+        Variable::aO(index) => Some(*index + 2 * circuit.muls()),
+        Variable::CG { commitment, index } => None,
+        Variable::V(_) => None,
+    };
+    picus_index.map(|index| PicusVariable(index))
   }
 }
 
@@ -181,7 +316,7 @@ impl<F: PrimeField> DisplayWithContext for PicusTerm<F> {
       PicusTerm::Constant(value) => {
         let repr = value.to_repr();
         let repr_bytes: &[u8] = repr.as_ref();
-        let mut bigint: U256 = U256::from_le_bytes(repr_bytes.try_into().unwrap());
+        let bigint: U256 = U256::from_le_bytes(repr_bytes.try_into().unwrap());
         let decimal_representation = bigint_to_decimal(bigint);
         write!(f, "{}", decimal_representation)
       }
@@ -267,11 +402,11 @@ mod tests {
   type F = <Secp256k1 as Ciphersuite>::F;
 
   #[test]
-  fn test_picus_program_display() {
+  fn test_picus_program_display() -> Result<(), String> {
     let mut module: PicusModule<F> = PicusModule::new("main".to_string());
-    let var0 = module.fresh_variable("var0").unwrap();
-    let var1 = module.fresh_variable("var1").unwrap();
-    _ = module.mark_variable_as_input(var0);
+    let var0 = module.fresh_variable(Some("var0"))?;
+    let _var1 = module.fresh_variable(Some("var1"))?;
+    module.mark_variable_as_input(var0)?;
     let program = PicusProgram::new(vec![module]);
     assert_eq!(
       program.to_string(),
@@ -281,5 +416,6 @@ mod tests {
   (output var1)
 (end-module)\n"
     );
+    Ok(())
   }
 }
