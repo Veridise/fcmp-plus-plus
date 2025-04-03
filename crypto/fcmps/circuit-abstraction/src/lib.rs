@@ -18,6 +18,7 @@ use generalized_bulletproofs::{
 pub use generalized_bulletproofs::arithmetic_circuit_proof::{Variable, LinComb};
 
 mod gadgets;
+mod picus;
 
 /// A trait for the transcript, whether proving for verifying, as necessary for sampling
 /// challenges.
