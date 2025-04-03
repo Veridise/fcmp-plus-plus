@@ -95,21 +95,21 @@ pub struct PicusProgram<F: PrimeField> {
   modules: Vec<PicusModule<F>>,
 }
 
-impl<F: PrimeField> Into<PicusTerm<F>> for PicusVariable {
-    fn into(self) -> PicusTerm<F> {
-      PicusTerm::Variable(self)
+impl<F: PrimeField> From<PicusVariable> for PicusTerm<F> {
+    fn from(val: PicusVariable) -> Self {
+      PicusTerm::Variable(val)
     }
 }
 
-impl<F: PrimeField> Into<PicusExpression<F>> for PicusTerm<F> {
-    fn into(self) -> PicusExpression<F> {
-      PicusExpression::PicusTerm(self)
+impl<F: PrimeField> From<PicusTerm<F>> for PicusExpression<F> {
+    fn from(val: PicusTerm<F>) -> Self {
+      PicusExpression::PicusTerm(val)
     }
 }
 
-impl<F: PrimeField> Into<PicusExpression<F>> for PicusVariable {
-    fn into(self) -> PicusExpression<F> {
-      let term: PicusTerm<F> = self.into();
+impl<F: PrimeField> From<PicusVariable> for PicusExpression<F> {
+    fn from(val: PicusVariable) -> Self {
+      let term: PicusTerm<F> = val.into();
       term.into()
     }
 }
@@ -160,7 +160,7 @@ impl<F: PrimeField> PicusModule<F> {
 
   #[must_use]
   pub fn fresh_variable(&mut self, maybe_name: Option<&str>) -> Result<PicusVariable, String> {
-    self.context.add_variable(maybe_name).map(|var| PicusVariable(var))
+    self.context.add_variable(maybe_name).map(PicusVariable)
   }
 
   #[must_use]
@@ -177,11 +177,11 @@ impl<F: PrimeField> PicusModule<F> {
   where C: Ciphersuite<F = F>
   {
     // Ensure we can support the lincombs
-    let some_wv = circuit.constraints.iter().any(|constraint| constraint.WV().len() > 0);
+    let some_wv = circuit.constraints.iter().any(|constraint| !constraint.WV().is_empty());
     if some_wv {
       return Err("Constraint has WV != 0".to_string());
     }
-    let some_wcg = circuit.constraints.iter().any(|constraint| constraint.WCG().len() > 0);
+    let some_wcg = circuit.constraints.iter().any(|constraint| !constraint.WCG().is_empty());
     if some_wcg {
       return Err("Constraint has wcg != 0".to_string());
     }
@@ -192,7 +192,7 @@ impl<F: PrimeField> PicusModule<F> {
     }
 
     // Make sure we have enough variables
-    for (vector_index, base_name) in vec!["aL", "aR", "aO"].into_iter().enumerate() {
+    for (_vector_index, base_name) in vec!["aL", "aR", "aO"].into_iter().enumerate() {
       for i in 0..circuit.muls() {
         self.fresh_variable(Some(&format!("{}_{}", base_name, i)))?;
       }
@@ -203,27 +203,27 @@ impl<F: PrimeField> PicusModule<F> {
     for constraint in &circuit.constraints {
       let mut var_to_coefficient: HashMap<_, _> = HashMap::<PicusVariable, PicusExpression<F>>::new();
       for (index, coefficient) in constraint.WL() {
-        let coefficient: PicusExpression<F> = PicusTerm::Constant(coefficient.clone()).into();
+        let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
         let picus_variable = self.circuit_variable_to_picus_variable(&Variable::aL(*index), circuit).unwrap();
         let _ = *var_to_coefficient.entry(picus_variable)
           .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
           .or_insert(coefficient);
       }
       for (index, coefficient) in constraint.WR() {
-        let coefficient: PicusExpression<F> = PicusTerm::Constant(coefficient.clone()).into();
+        let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
         let picus_variable = self.circuit_variable_to_picus_variable(&Variable::aR(*index), circuit).unwrap();
         let _ = *var_to_coefficient.entry(picus_variable)
           .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
           .or_insert(coefficient);
       }
       for (index, coefficient) in constraint.WO() {
-        let coefficient: PicusExpression<F> = PicusTerm::Constant(coefficient.clone()).into();
+        let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
         let picus_variable = self.circuit_variable_to_picus_variable(&Variable::aO(*index), circuit).unwrap();
         let _ = *var_to_coefficient.entry(picus_variable)
           .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
           .or_insert(coefficient);
       }
-      let terms = (0..self.num_variables()).into_iter()
+      let terms = (0..self.num_variables())
           .filter_map(|picus_index| var_to_coefficient.get(&PicusVariable(picus_index))
             .map(|coeff| (PicusVariable(picus_index), coeff.clone()))
           )
@@ -256,10 +256,10 @@ impl<F: PrimeField> PicusModule<F> {
         Variable::aL(index) => Some(*index),
         Variable::aR(index) => Some(*index + circuit.muls()),
         Variable::aO(index) => Some(*index + 2 * circuit.muls()),
-        Variable::CG { commitment, index } => None,
+        Variable::CG { commitment: _, index: _ } => None,
         Variable::V(_) => None,
     };
-    picus_index.map(|index| PicusVariable(index))
+    picus_index.map(PicusVariable)
   }
 }
 
@@ -326,8 +326,8 @@ fn bigint_to_decimal(bigint: U256) -> String {
     digits.push(remainder.to_string());
     bigint = quotient;
   }
-  let decimal_representation = digits.into_iter().rev().collect::<Vec<String>>().join("");
-  return decimal_representation;
+
+  digits.into_iter().rev().collect::<Vec<String>>().join("")
 }
 
 impl<F: PrimeField> DisplayWithContext for PicusTerm<F> {
@@ -377,23 +377,23 @@ impl<F: PrimeField> DisplayWithContext for PicusStatement<F> {
 
 impl<F: PrimeField> Display for PicusModule<F> {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-    write!(f, "(begin-module {})\n", self.name)?;
+    writeln!(f, "(begin-module {})", self.name)?;
 
     // Print declarations
     let mut sorted_inputs = self.input_variables.iter().cloned().collect::<Vec<_>>();
     sorted_inputs.sort();
     for variable in sorted_inputs {
-      write!(f, "  (input {})\n", variable.with(&self.context))?;
+      writeln!(f, "  (input {})", variable.with(&self.context))?;
     }
     for variable_index in (0..self.num_variables())
       .filter(|&index| !self.input_variables.contains(&PicusVariable(index)))
     {
-      write!(f, "  (output {})\n", PicusVariable(variable_index).with(&self.context))?;
+      writeln!(f, "  (output {})", PicusVariable(variable_index).with(&self.context))?;
     }
 
     // Print statements
     for statement in &self.statements {
-      write!(f, "{}\n", statement.with(&self.context))?;
+      writeln!(f, "{}", statement.with(&self.context))?;
     }
 
     write!(f, "(end-module)")?;
@@ -405,9 +405,9 @@ impl<F: PrimeField> Display for PicusProgram<F> {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
     let modulus: U256 = U256::from_be_hex(F::MODULUS);
     let decimal_representation = bigint_to_decimal(modulus);
-    write!(f, "(prime-number {})\n", decimal_representation)?;
+    writeln!(f, "(prime-number {})", decimal_representation)?;
     for module in &self.modules {
-      write!(f, "{}\n", module)?;
+      writeln!(f, "{}", module)?;
     }
     Ok(())
   }
@@ -415,10 +415,14 @@ impl<F: PrimeField> Display for PicusProgram<F> {
 
 // pub fn compile_to_picus(circuit: &Circuit) -> String {}
 //
+#[cfg(test)]
 mod tests {
-  use crate::{picus::{PicusModule, PicusProgram}, Circuit};
+
   use ciphersuite::{Ciphersuite, Secp256k1};
-use generalized_bulletproofs::arithmetic_circuit_proof::{LinComb, Variable};
+use generalized_bulletproofs::arithmetic_circuit_proof::LinComb;
+
+use crate::{picus::{PicusModule, PicusProgram}, Circuit};
+
 
   // https://www.cs.utexas.edu/~moore/acl2/manuals/current/manual/index-seo.php?xkey=PRIMES____SECP256K1-GROUP-PRIME
   // 115792089237316195423570985008687907852837564279074904382605163141518161494337
@@ -451,7 +455,7 @@ use generalized_bulletproofs::arithmetic_circuit_proof::{LinComb, Variable};
       prover: None
     };
     let (l, r, o) = circuit.mul(None, None, None);
-    let mut lincomb = LinComb::empty()
+    let lincomb = LinComb::empty()
       .term(F::ONE, l)
       .term(F::ONE, r)
       .term(F::ONE.negate(), o);
