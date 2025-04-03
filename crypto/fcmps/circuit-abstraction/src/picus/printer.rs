@@ -73,6 +73,7 @@ impl<F: PrimeField> DisplayWithContext for PicusTerm<F> {
       PicusTerm::Constant(value) => {
         let repr = value.to_repr();
         let repr_bytes: &[u8] = repr.as_ref();
+        // TODO: depending on the field implementation, repr may be little-endian.
         let bigint: U256 = U256::from_be_bytes(repr_bytes.try_into().unwrap());
         let decimal_representation = bigint_to_decimal(bigint);
         write!(f, "{}", decimal_representation)
