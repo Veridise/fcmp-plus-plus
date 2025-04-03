@@ -28,15 +28,12 @@ impl PicusContext {
   /// Adds a new variable to the program context.
   fn add_variable(&mut self, name: Option<&str>) -> Result<usize, String> {
     let index = self.num_variables;
-    match name {
-      Some(name) => {
-        if self.variable_names.contains(name) {
-          return Err(format!("Variable name {} already exists", name));
-        }
-        self.variable_names.insert(name.to_string());
-        self.variable_index_to_names.insert(index, name.to_string());
+    if let Some(name) = name{
+      if self.variable_names.contains(name) {
+        return Err(format!("Variable name {} already exists", name));
       }
-      _ => {}
+      self.variable_names.insert(name.to_string());
+      self.variable_index_to_names.insert(index, name.to_string());
     }
     self.num_variables += 1;
     Ok(index)
@@ -54,7 +51,7 @@ impl PicusContext {
 
 /// Represents a variable in the circuit with a unique index.
 #[derive(Eq, Hash, PartialEq, Clone, Copy, PartialOrd, Ord)]
-struct PicusVariable(usize);
+pub struct PicusVariable(usize);
 
 #[derive(Clone)]
 enum PicusTerm<F: PrimeField> {
@@ -139,7 +136,7 @@ impl<F: PrimeField> Sub for PicusExpression<F> {
 }
 
 impl<F: PrimeField> PicusExpression<F> {
-  pub fn is_equal(self, rhs: Self) -> Self {
+  pub fn equals(self, rhs: Self) -> Self {
     PicusExpression::IsEqual(BinaryOperatorArgs { left: Box::new(self), right: Box::new(rhs) })
   }
 }
@@ -158,12 +155,10 @@ impl<F: PrimeField> PicusModule<F> {
     self.context.get_num_variables()
   }
 
-  #[must_use]
   pub fn fresh_variable(&mut self, maybe_name: Option<&str>) -> Result<PicusVariable, String> {
     self.context.add_variable(maybe_name).map(PicusVariable)
   }
 
-  #[must_use]
   pub fn mark_variable_as_input(&mut self, variable: PicusVariable) -> Result<(), String> {
     if variable.0 >= self.num_variables() {
       return Err(format!("Variable {} is not defined", variable.0));
@@ -172,7 +167,6 @@ impl<F: PrimeField> PicusModule<F> {
     Ok(())
   }
 
-  #[must_use]
   pub fn apply_constraints<C>(&mut self, circuit: &Circuit<C>) -> Result<(), String>
   where C: Ciphersuite<F = F>
   {
@@ -235,7 +229,7 @@ impl<F: PrimeField> PicusModule<F> {
           Some(sum) => sum,
           None => continue,
       };
-      self.statements.push(PicusStatement::Assert(sum.is_equal(zero.clone())));
+      self.statements.push(PicusStatement::Assert(sum.equals(zero.clone())));
     }
     // Apply quadratic constraints
     for i in 0..circuit.muls() {
@@ -243,7 +237,7 @@ impl<F: PrimeField> PicusModule<F> {
       let aR: PicusExpression<F> = self.circuit_variable_to_picus_variable(&Variable::aR(i), circuit).unwrap().into();
       let aO: PicusExpression<F> = self.circuit_variable_to_picus_variable(&Variable::aO(i), circuit).unwrap().into();
       self.statements.push(
-        PicusStatement::Assert((aL * aR).is_equal(aO))
+        PicusStatement::Assert((aL * aR).equals(aO))
       );
     }
 
@@ -290,7 +284,7 @@ where
 }
 
 /// Trait auto-implemented for any struct which can be displayed with a context.
-pub trait WithContextExt {
+trait WithContextExt {
   fn with<'a, 'b>(&'a self, context: &'b PicusContext) -> Box<WithContext<'a, 'b, Self>> {
     Box::new(WithContext { value: self, context })
   }
