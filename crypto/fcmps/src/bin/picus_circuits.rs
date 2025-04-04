@@ -68,18 +68,19 @@ where
     C: Ciphersuite,
 {
   // Build the picus program
-  let file_path = out_dir.join(format!("{}.picus", circuit_name));
   let module: PicusModule<C::F> = picus_inputs.to_picus_module(circuit_name)?;
   let program: PicusProgram<C::F> = PicusProgram::new(vec![module]);
 
   // Write and print the picus program
   let picus_program_str = program.to_string();
-  write_to_file(&picus_program_str, file_path.clone()).expect(&format!("Failed to write to {:?}", file_path));
+  let picus_file_path = out_dir.join(format!("{}.picus", circuit_name));
+  write_to_file(&picus_program_str, picus_file_path.clone()).expect(&format!("Failed to write to {:?}", picus_file_path));
   println!("Program:\n{}", picus_program_str);
 
   // Write and print the picus program as circom
   let circom_program_str = program.to_circom()?;
-  write_to_file(&circom_program_str, file_path.clone()).expect(&format!("Failed to write to {:?}", file_path));
+  let circom_file_path = out_dir.join(format!("{}.circom", circuit_name));
+  write_to_file(&circom_program_str, circom_file_path.clone()).expect(&format!("Failed to write to {:?}", circom_file_path));
   println!("Program:\n{}", circom_program_str);
 
   Ok(())
