@@ -63,9 +63,13 @@ fn write_to_file<P: AsRef<Path>>(content: &str, path: P) -> std::io::Result<()> 
 }
 
 /// Generate a picus program, write it to a file, and print it to the console
-fn generate_and_write_picus_program<C>(out_dir: &Path, circuit_name: &str, picus_inputs: PicusInputs<C>) -> Result<(), String>
+fn generate_and_write_picus_program<C>(
+  out_dir: &Path,
+  circuit_name: &str,
+  picus_inputs: PicusInputs<C>,
+) -> Result<(), String>
 where
-    C: Ciphersuite,
+  C: Ciphersuite,
 {
   // Build the picus program
   let module: PicusModule<C::F> = picus_inputs.to_picus_module(circuit_name)?;
@@ -74,13 +78,15 @@ where
   // Write and print the picus program
   let picus_program_str = program.to_string();
   let picus_file_path = out_dir.join(format!("{}.picus", circuit_name));
-  write_to_file(&picus_program_str, picus_file_path.clone()).expect(&format!("Failed to write to {:?}", picus_file_path));
+  write_to_file(&picus_program_str, picus_file_path.clone())
+    .expect(&format!("Failed to write to {:?}", picus_file_path));
   println!("Program:\n{}", picus_program_str);
 
   // Write and print the picus program as circom
   let circom_program_str = program.to_circom()?;
   let circom_file_path = out_dir.join(format!("{}.circom", circuit_name));
-  write_to_file(&circom_program_str, circom_file_path.clone()).expect(&format!("Failed to write to {:?}", circom_file_path));
+  write_to_file(&circom_program_str, circom_file_path.clone())
+    .expect(&format!("Failed to write to {:?}", circom_file_path));
   println!("Program:\n{}", circom_program_str);
 
   Ok(())
