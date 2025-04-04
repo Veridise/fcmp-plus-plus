@@ -10,7 +10,7 @@ trait DisplayWithContext {
 }
 
 /// A generic wrapper type that pairs an object with its context.
-struct WithContext<'a, 'b, T: ?Sized> {
+pub(crate) struct WithContext<'a, 'b, T: ?Sized> {
   pub value: &'a T,
   pub context: &'b PicusContext,
 }
@@ -27,7 +27,7 @@ where
 
 /// Trait auto-implemented for any struct which can be displayed with a context.
 /// This allows us to use the write!() macro by just appending .with(&context)
-trait WithContextExt {
+pub(crate) trait WithContextExt {
   fn with<'a, 'b>(&'a self, context: &'b PicusContext) -> Box<WithContext<'a, 'b, Self>> {
     Box::new(WithContext { value: self, context })
   }

@@ -1,15 +1,16 @@
 use core::ops::{Add, Mul, Sub};
 use std::collections::{HashMap, HashSet};
 
-use ciphersuite::group::ff::{Field, PrimeField};
+use ciphersuite::group::ff::PrimeField;
 use ciphersuite::Ciphersuite;
 use generalized_bulletproofs::arithmetic_circuit_proof::Variable;
 
 use crate::Circuit;
 
 pub mod printer;
+pub mod circom;
 
-struct PicusContext {
+pub(crate) struct PicusContext {
   num_variables: usize,
   variable_names: HashSet<String>,
   variable_index_to_names: HashMap<usize, String>,
@@ -53,7 +54,7 @@ impl PicusContext {
 pub struct PicusVariable(usize);
 
 #[derive(Clone)]
-enum PicusTerm<F: PrimeField> {
+pub(crate) enum PicusTerm<F: PrimeField> {
   ///Hard-coded constant value.
   Constant(F),
   /// Reference to a variable in the circuit.
@@ -61,13 +62,13 @@ enum PicusTerm<F: PrimeField> {
 }
 
 #[derive(Clone)]
-struct BinaryOperatorArgs<F: PrimeField> {
+pub(crate) struct BinaryOperatorArgs<F: PrimeField> {
   left: Box<PicusExpression<F>>,
   right: Box<PicusExpression<F>>,
 }
 
 #[derive(Clone)]
-enum PicusExpression<F: PrimeField> {
+pub(crate) enum PicusExpression<F: PrimeField> {
   PicusTerm(PicusTerm<F>),
   IsEqual(BinaryOperatorArgs<F>),
   Multiply(BinaryOperatorArgs<F>),
@@ -75,7 +76,8 @@ enum PicusExpression<F: PrimeField> {
   Subtract(BinaryOperatorArgs<F>),
 }
 
-enum PicusStatement<F: PrimeField> {
+#[derive(Clone)]
+pub(crate) enum PicusStatement<F: PrimeField> {
   Assert(PicusExpression<F>),
   Assume(PicusExpression<F>),
 }
@@ -164,6 +166,10 @@ impl<F: PrimeField> PicusModule<F> {
     }
     self.input_variables.insert(variable);
     Ok(())
+  }
+
+  pub(crate) fn add_statement(&mut self, statement: PicusStatement<F>) {
+    self.statements.push(statement);
   }
 
   pub fn apply_constraints<C>(&mut self, circuit: &Circuit<C>) -> Result<(), String>
