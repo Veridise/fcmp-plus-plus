@@ -185,11 +185,18 @@ impl<F: PrimeField> PicusModule<F> {
     let mut normalized_module: PicusModule<F> = PicusModule::<F>::new(self.name.clone());
     for variable_index in 0..self.num_variables() {
       normalized_module
-        .fresh_variable(self.context.get_variable_name(variable_index).map(|x| x.as_str()))?;
+        .fresh_variable(self.context.get_variable_name(variable_index).as_deref())?;
     }
-    for input_variable in &self.input_variables {
-      normalized_module.mark_variable_as_input(*input_variable)?;
-    }
+    // mark input variables
+    self
+      .context
+      .variable_info
+      .iter()
+      .enumerate()
+      .filter(|(_var_index, var_info)| var_info.is_input)
+      .map(|(var_index, _var_info)| PicusVariable(var_index))
+      .map(|var| normalized_module.mark_variable_as_input(var))
+      .collect::<Result<Vec<_>, _>>()?;
 
     // Put normalized copies of all program statements into the normalized module
     let mut circom_context =
@@ -206,14 +213,24 @@ impl<F: PrimeField> PicusModule<F> {
     // Done mutating normalized_module
     let normalized_module = circom_context.module;
 
-    let declarations = (0..normalized_module.num_variables())
-      .map(PicusVariable)
-      .map(|var| {
-        let modifier =
-          if normalized_module.input_variables.contains(&var) { "input" } else { "output" };
-        var.to_circom(&normalized_module.context).map(|var| format!("signal {} {};", modifier, var))
+    let declarations = normalized_module
+      .context
+      .variable_info
+      .iter()
+      .enumerate()
+      .map(|(i, var_info)| {
+        let var = PicusVariable(i);
+        let var_str =
+          var.to_circom(&normalized_module.context).expect("Variable printing is infallible");
+        let dummy_assignment = if var_info.is_input {
+          "".to_string()
+        } else {
+          format!("\n  {} <-- 0; // dummy assignment", var_str)
+        };
+        let modifier = if var_info.is_input { "input" } else { "output" };
+        format!("signal {} {};{}", modifier, var_str, dummy_assignment)
       })
-      .collect::<Result<Vec<String>, _>>()?
+      .collect::<Vec<String>>()
       .join("\n  ");
 
     let constraints = normalized_module
@@ -223,7 +240,7 @@ impl<F: PrimeField> PicusModule<F> {
       .collect::<Result<Vec<String>, _>>()?
       .join("\n  ");
     Ok(format!(
-      "template {} {{\n  // Declarations\n  {}\n\n  // Constraints\n  {}\n}}",
+      "template {}() {{\n  // Declarations\n  {}\n\n  // Constraints\n  {}\n}}",
       normalized_module.name, declarations, constraints
     ))
   }
@@ -281,11 +298,12 @@ mod tests {
 
     assert_eq!(
       module.to_circom()?,
-      "template main {
+      "template main() {
   // Declarations
   signal input aL_0;
   signal input aR_0;
   signal output aO_0;
+  aO_0 <-- 0; // dummy assignment
 
   // Constraints
   (1) * (aL_0) + (1) * (aR_0) + (115792089237316195423570985008687907852837564279074904382605163141518161494336) * (aO_0) === 0;

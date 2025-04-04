@@ -12,42 +12,43 @@ pub mod printer;
 /// Picus program -> circom code
 pub mod circom;
 
+pub(crate) struct PicusVariableInfo {
+  is_input: bool,
+  name: Option<String>,
+}
+
+impl PicusVariableInfo {
+  pub(crate) fn new(name: Option<&str>) -> PicusVariableInfo {
+    PicusVariableInfo { is_input: false, name: name.map(|x| x.to_string()) }
+  }
+}
+
 pub(crate) struct PicusContext {
-  num_variables: usize,
+  variable_info: Vec<PicusVariableInfo>,
   variable_names: HashSet<String>,
-  variable_index_to_names: HashMap<usize, String>,
 }
 
 impl PicusContext {
   fn new() -> Self {
-    PicusContext {
-      num_variables: 0,
-      variable_names: HashSet::new(),
-      variable_index_to_names: HashMap::new(),
-    }
+    PicusContext { variable_info: vec![], variable_names: HashSet::new() }
   }
 
   /// Adds a new variable to the program context.
   fn add_variable(&mut self, name: Option<&str>) -> Result<usize, String> {
-    let index = self.num_variables;
+    self.variable_info.push(PicusVariableInfo::new(name));
     if let Some(name) = name {
-      if self.variable_names.contains(name) {
-        return Err(format!("Variable name {} already exists", name));
-      }
       self.variable_names.insert(name.to_string());
-      self.variable_index_to_names.insert(index, name.to_string());
     }
-    self.num_variables += 1;
-    Ok(index)
+    Ok(self.variable_info.len() - 1)
   }
 
   /// Retrieves the name of a variable given its index.
-  fn get_variable_name(&self, index: usize) -> Option<&String> {
-    self.variable_index_to_names.get(&index)
+  fn get_variable_name(&self, index: usize) -> Option<String> {
+    self.variable_info.get(index).and_then(|variable_info| variable_info.name.clone())
   }
 
   fn get_num_variables(&self) -> usize {
-    self.num_variables
+    self.variable_info.len()
   }
 }
 
@@ -87,7 +88,6 @@ pub(crate) enum PicusStatement<F: PrimeField> {
 /// A modular component of constraints in a pcius program
 pub struct PicusModule<F: PrimeField> {
   name: String,
-  input_variables: HashSet<PicusVariable>,
   statements: Vec<PicusStatement<F>>,
   context: PicusContext,
 }
@@ -149,12 +149,7 @@ impl<F: PrimeField> PicusExpression<F> {
 impl<F: PrimeField> PicusModule<F> {
   /// Create a new empty picus module
   pub fn new(name: String) -> Self {
-    PicusModule {
-      name,
-      input_variables: HashSet::new(),
-      statements: Vec::new(),
-      context: PicusContext::new(),
-    }
+    PicusModule { name, statements: Vec::new(), context: PicusContext::new() }
   }
 
   /// Number of variables in this picus module
@@ -175,7 +170,7 @@ impl<F: PrimeField> PicusModule<F> {
     if variable.0 >= self.num_variables() {
       return Err(format!("Variable {} is not defined", variable.0));
     }
-    self.input_variables.insert(variable);
+    self.context.variable_info[variable.0].is_input = true;
     Ok(())
   }
 
@@ -380,8 +375,8 @@ mod tests {
       "(prime-number 115792089237316195423570985008687907852837564279074904382605163141518161494337)
 (begin-module main)
   (input aL_0)
-  (input aR_0)
   (output aL_1)
+  (input aR_0)
   (output aR_1)
   (output aO_0)
   (output aO_1)
