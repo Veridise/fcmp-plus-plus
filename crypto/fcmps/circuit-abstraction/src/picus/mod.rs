@@ -192,8 +192,8 @@ impl<F: PrimeField> PicusModule<F> {
     }
 
     // Apply linear constraints
-    let zero: PicusExpression<F> = PicusTerm::Constant(<C::F as Field>::ZERO).into();
     for constraint in &circuit.constraints {
+
       let mut var_to_coefficient: HashMap<_, _> = HashMap::<PicusVariable, PicusExpression<F>>::new();
       for (index, coefficient) in constraint.WL() {
         let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
@@ -228,7 +228,9 @@ impl<F: PrimeField> PicusModule<F> {
           Some(sum) => sum,
           None => continue,
       };
-      self.statements.push(PicusStatement::Assert(sum.equals(zero.clone())));
+
+      let negative_c: PicusExpression<F> = PicusTerm::Constant(constraint.c().neg()).into();
+      self.statements.push(PicusStatement::Assert(sum.equals(negative_c)));
     }
     // Apply quadratic constraints
     for i in 0..circuit.muls() {
@@ -325,6 +327,48 @@ use crate::{picus::{PicusModule, PicusProgram}, Circuit};
   (assert (= (+ (+ (* 1 aL_0) (* 1 aR_0)) (* 115792089237316195423570985008687907852837564279074904382605163141518161494336 aO_0)) 0))
   (assert (= (* aL_0 aR_0) aO_0))
 (end-module)\n"
+    );
+    Ok(())
+  }
+
+  #[test]
+  fn test_circuit_to_picus_inverse() -> Result<(), String> {
+    let mut circuit: Circuit<C> = Circuit::<C> {
+      constraints: vec![],
+      muls: 0,
+      prover: None
+    };
+    let (l, r, o) = circuit.mul(None, None, None);
+    let lincomb = LinComb::empty()
+      .term(F::ONE, l)
+      .term(F::ONE, r)
+      .term(F::ONE.negate(), o);
+    circuit.constrain_equal_to_zero(lincomb);
+    circuit.inverse(Some(l.into()), None);
+
+    let mut module: PicusModule<F> = PicusModule::new("main".to_string());
+    module.apply_constraints(&circuit);
+    module.mark_variable_as_input(module.circuit_variable_to_picus_variable(&l, &circuit).unwrap());
+    module.mark_variable_as_input(module.circuit_variable_to_picus_variable(&r, &circuit).unwrap());
+
+    let program = PicusProgram::new(vec![module]);
+    let program_text = program.to_string();
+    assert_eq!(
+      program_text,
+      "(prime-number 115792089237316195423570985008687907852837564279074904382605163141518161494337)
+(begin-module main)
+  (input aL_0)
+  (input aR_0)
+  (output aL_1)
+  (output aR_1)
+  (output aO_0)
+  (output aO_1)
+  (assert (= (+ (+ (* 1 aL_0) (* 1 aR_0)) (* 115792089237316195423570985008687907852837564279074904382605163141518161494336 aO_0)) 0))
+  (assert (= (+ (* 1 aL_0) (* 115792089237316195423570985008687907852837564279074904382605163141518161494336 aL_1)) 0))
+  (assert (= (* 1 aO_1) 1))
+  (assert (= (* aL_0 aR_0) aO_0))
+  (assert (= (* aL_1 aR_1) aO_1))
+(end-module)\n",
     );
     Ok(())
   }

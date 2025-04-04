@@ -64,7 +64,8 @@ fn bigint_to_decimal(bigint: U256) -> String {
     bigint = quotient;
   }
 
-  digits.into_iter().rev().collect::<Vec<String>>().join("")
+  let digits = digits.into_iter().rev().collect::<Vec<String>>();
+  digits.join("")
 }
 
 impl<F: PrimeField> DisplayWithContext for PicusTerm<F> {
