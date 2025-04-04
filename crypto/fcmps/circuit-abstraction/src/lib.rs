@@ -18,7 +18,8 @@ use generalized_bulletproofs::{
 pub use generalized_bulletproofs::arithmetic_circuit_proof::{Variable, LinComb};
 
 mod gadgets;
-mod picus;
+/// Picus backend to the Circuit abstraction
+pub mod picus;
 
 /// A trait for the transcript, whether proving for verifying, as necessary for sampling
 /// challenges.
@@ -71,6 +72,11 @@ pub struct Circuit<C: Ciphersuite> {
 }
 
 impl<C: Ciphersuite> Circuit<C> {
+  /// Create an empty circuit
+  pub fn empty() -> Circuit<C> {
+    Circuit { muls: 0, constraints: vec![], prover: None }
+  }
+
   /// Returns the amount of multiplications used by this circuit.
   pub fn muls(&self) -> usize {
     self.muls

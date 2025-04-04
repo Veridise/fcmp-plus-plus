@@ -42,6 +42,10 @@ helioselene = { path = "../helioselene" }
 ec-divisors = { path = "../divisors", features = ["ed25519"] }
 generalized-bulletproofs = { path = "../generalized-bulletproofs", features = ["tests"] }
 
+[[bin]]
+name = "picus_circuits"
+path = "src/bin/picus_circuits.rs"
+
 [features]
 std = [
   "std-shims/std",

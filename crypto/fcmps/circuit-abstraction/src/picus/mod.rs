@@ -7,7 +7,9 @@ use generalized_bulletproofs::arithmetic_circuit_proof::Variable;
 
 use crate::Circuit;
 
+/// print picus programs
 pub mod printer;
+/// Picus program -> circom code
 pub mod circom;
 
 pub(crate) struct PicusContext {
@@ -82,6 +84,7 @@ pub(crate) enum PicusStatement<F: PrimeField> {
   Assume(PicusExpression<F>),
 }
 
+/// A modular component of constraints in a pcius program
 pub struct PicusModule<F: PrimeField> {
   name: String,
   input_variables: HashSet<PicusVariable>,
@@ -89,6 +92,7 @@ pub struct PicusModule<F: PrimeField> {
   context: PicusContext,
 }
 
+/// A picus program
 pub struct PicusProgram<F: PrimeField> {
   modules: Vec<PicusModule<F>>,
 }
@@ -143,6 +147,7 @@ impl<F: PrimeField> PicusExpression<F> {
 }
 
 impl<F: PrimeField> PicusModule<F> {
+  /// Create a new empty picus module
   pub fn new(name: String) -> Self {
     PicusModule {
       name,
@@ -152,14 +157,20 @@ impl<F: PrimeField> PicusModule<F> {
     }
   }
 
+  /// Number of variables in this picus module
   pub fn num_variables(&self) -> usize {
     self.context.get_num_variables()
   }
 
+  /// Create a fresh variable
+  ///
+  /// If a name is provided, it must be unique or this method will produce an error
   pub fn fresh_variable(&mut self, maybe_name: Option<&str>) -> Result<PicusVariable, String> {
     self.context.add_variable(maybe_name).map(PicusVariable)
   }
 
+  /// Mark the picus variable as an input variable. All other variables
+  /// default to outputs
   pub fn mark_variable_as_input(&mut self, variable: PicusVariable) -> Result<(), String> {
     if variable.0 >= self.num_variables() {
       return Err(format!("Variable {} is not defined", variable.0));
@@ -172,6 +183,8 @@ impl<F: PrimeField> PicusModule<F> {
     self.statements.push(statement);
   }
 
+  /// Convert the Circuit constraints into a form compatible with Picus.
+  /// This will fail if the picus module is not empty
   pub fn apply_constraints<C>(&mut self, circuit: &Circuit<C>) -> Result<(), String>
   where
     C: Ciphersuite<F = F>,
@@ -260,6 +273,7 @@ impl<F: PrimeField> PicusModule<F> {
     Ok(())
   }
 
+  /// Get the Picus Variable associated to the circuit variable, or None if there is none
   #[must_use]
   pub fn circuit_variable_to_picus_variable<C: Ciphersuite>(
     &self,
@@ -278,6 +292,7 @@ impl<F: PrimeField> PicusModule<F> {
 }
 
 impl<F: PrimeField> PicusProgram<F> {
+  /// Create a new picus program from the provided modulus
   pub fn new(modules: Vec<PicusModule<F>>) -> Self {
     PicusProgram { modules }
   }
