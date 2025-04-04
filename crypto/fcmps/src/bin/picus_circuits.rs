@@ -83,7 +83,8 @@ where
   println!("Program:\n{}", picus_program_str);
 
   // Write and print the picus program as circom
-  let circom_program_str = program.to_circom()?;
+  let main_module_index = 0;
+  let circom_program_str = program.to_circom(main_module_index)?;
   let circom_file_path = out_dir.join(format!("{}.circom", circuit_name));
   write_to_file(&circom_program_str, circom_file_path.clone())
     .expect(&format!("Failed to write to {:?}", circom_file_path));

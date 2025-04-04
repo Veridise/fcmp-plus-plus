@@ -1,7 +1,8 @@
 use ciphersuite::group::ff::PrimeField;
 
 use super::{
-  BinaryOperatorArgs, PicusContext, PicusExpression, PicusModule, PicusProgram, PicusStatement, PicusTerm, PicusVariable
+  BinaryOperatorArgs, PicusContext, PicusExpression, PicusModule, PicusProgram, PicusStatement,
+  PicusTerm, PicusVariable,
 };
 use super::printer::WithContextExt;
 
@@ -230,11 +231,24 @@ impl<F: PrimeField> PicusModule<F> {
 
 impl<F: PrimeField> PicusProgram<F> {
   /// Convert picus program to a string-representation of a circom module
-  pub fn to_circom(&self) -> Result<String, String> {
-    let templates = self.modules.iter()
-      .map(|module| module.to_circom())
-      .collect::<Result<Vec<_>, _>>()?;
-    Ok(templates.join("\n"))
+  pub fn to_circom(&self, main_module_index: usize) -> Result<String, String> {
+    if main_module_index >= self.modules.len() {
+      return Err(format!(
+        "Invalid module index: '{}' in program with {} modules",
+        main_module_index,
+        self.modules.len()
+      ));
+    }
+
+    let templates =
+      self.modules.iter().map(|module| module.to_circom()).collect::<Result<Vec<_>, _>>()?;
+    let program_str = format!(
+      "{}\n\ncomponent main = {}();",
+      templates.join("\n"),
+      self.modules[main_module_index].name
+    );
+
+    Ok(program_str)
   }
 }
 
