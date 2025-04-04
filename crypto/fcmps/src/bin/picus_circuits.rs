@@ -1,10 +1,11 @@
 // Replace these with your actual crate imports.
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ciphersuite::{Ciphersuite, Secp256k1};
 
+use generalized_bulletproofs_circuit_abstraction::picus::PicusProgram;
 use generalized_bulletproofs_circuit_abstraction::{
   picus::{PicusModule, PicusVariable},
   Circuit, LinComb, Variable,
@@ -55,13 +56,13 @@ fn generate_dummy_circuit<C: Ciphersuite>() -> PicusInputs<C> {
 }
 
 /// 3. Writes the printed Picus module to a file at the given path.
-fn write_picus_module_to_file<F: PrimeField, P: AsRef<Path>>(
-  module: &PicusModule<F>,
+fn write_picus_program_to_file<F: PrimeField, P: AsRef<Path>>(
+  program: &PicusProgram<F>,
   path: P,
 ) -> std::io::Result<()> {
   let mut file = File::create(path)?;
   // Convert the module to a string (using its Display/ToString implementation)
-  let content = module.to_string();
+  let content = program.to_string();
   file.write_all(content.as_bytes())?;
   Ok(())
 }
@@ -72,12 +73,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   type C = Secp256k1;
   type F = <C as Ciphersuite>::F;
 
+  // Create an "out" directory inside the crate directory.
+  let manifest_dir = env!("CARGO_MANIFEST_DIR");
+  let out_dir = PathBuf::from(manifest_dir).join("out");
+  fs::create_dir_all(&out_dir)?;
+
+  // Build the circuit
   let circuit_name = "dummy";
-  let file_path = format!("{}.picus", circuit_name);
+  let file_path = out_dir.join(format!("{}.picus", circuit_name));
   let picus_inputs: PicusInputs<_> = generate_dummy_circuit::<C>();
   let module: PicusModule<F> = picus_inputs.to_picus_module(circuit_name)?;
-  write_picus_module_to_file(&module, file_path)?;
-  println!("Picus module '{}':\n{}", circuit_name, module);
+  let program: PicusProgram<F> = PicusProgram::new(vec![module]);
+  write_picus_program_to_file(&program, file_path)?;
+  println!("Program:\n{}", program);
 
   Ok(())
 }

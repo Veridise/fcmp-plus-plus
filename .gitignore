@@ -5,3 +5,4 @@ Dockerfile.fast-epoch
 .test-logs
 
 .vscode
+*.picus
