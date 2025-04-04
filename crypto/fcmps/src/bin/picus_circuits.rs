@@ -56,14 +56,32 @@ fn generate_dummy_circuit<C: Ciphersuite>() -> PicusInputs<C> {
 }
 
 /// 3. Writes the printed Picus module to a file at the given path.
-fn write_picus_program_to_file<F: PrimeField, P: AsRef<Path>>(
-  program: &PicusProgram<F>,
-  path: P,
-) -> std::io::Result<()> {
+fn write_to_file<P: AsRef<Path>>(content: &str, path: P) -> std::io::Result<()> {
   let mut file = File::create(path)?;
-  // Convert the module to a string (using its Display/ToString implementation)
-  let content = program.to_string();
   file.write_all(content.as_bytes())?;
+  Ok(())
+}
+
+/// Generate a picus program, write it to a file, and print it to the console
+fn generate_and_write_picus_program<C>(out_dir: &Path, circuit_name: &str, picus_inputs: PicusInputs<C>) -> Result<(), String>
+where
+    C: Ciphersuite,
+{
+  // Build the picus program
+  let file_path = out_dir.join(format!("{}.picus", circuit_name));
+  let module: PicusModule<C::F> = picus_inputs.to_picus_module(circuit_name)?;
+  let program: PicusProgram<C::F> = PicusProgram::new(vec![module]);
+
+  // Write and print the picus program
+  let picus_program_str = program.to_string();
+  write_to_file(&picus_program_str, file_path.clone()).expect(&format!("Failed to write to {:?}", file_path));
+  println!("Program:\n{}", picus_program_str);
+
+  // Write and print the picus program as circom
+  let circom_program_str = program.to_circom()?;
+  write_to_file(&circom_program_str, file_path.clone()).expect(&format!("Failed to write to {:?}", file_path));
+  println!("Program:\n{}", circom_program_str);
+
   Ok(())
 }
 
@@ -71,21 +89,13 @@ fn write_picus_program_to_file<F: PrimeField, P: AsRef<Path>>(
 ///    writes it to a hard-coded file, and also prints the module to stdout.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   type C = Secp256k1;
-  type F = <C as Ciphersuite>::F;
 
   // Create an "out" directory inside the crate directory.
   let manifest_dir = env!("CARGO_MANIFEST_DIR");
   let out_dir = PathBuf::from(manifest_dir).join("out");
   fs::create_dir_all(&out_dir)?;
 
-  // Build the circuit
-  let circuit_name = "dummy";
-  let file_path = out_dir.join(format!("{}.picus", circuit_name));
-  let picus_inputs: PicusInputs<_> = generate_dummy_circuit::<C>();
-  let module: PicusModule<F> = picus_inputs.to_picus_module(circuit_name)?;
-  let program: PicusProgram<F> = PicusProgram::new(vec![module]);
-  write_picus_program_to_file(&program, file_path)?;
-  println!("Program:\n{}", program);
+  generate_and_write_picus_program(&out_dir, "dummy", generate_dummy_circuit::<C>())?;
 
   Ok(())
 }

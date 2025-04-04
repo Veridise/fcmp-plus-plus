@@ -1,8 +1,7 @@
 use ciphersuite::group::ff::PrimeField;
 
 use super::{
-  BinaryOperatorArgs, PicusContext, PicusExpression, PicusModule, PicusStatement, PicusTerm,
-  PicusVariable,
+  BinaryOperatorArgs, PicusContext, PicusExpression, PicusModule, PicusProgram, PicusStatement, PicusTerm, PicusVariable
 };
 use super::printer::WithContextExt;
 
@@ -214,18 +213,28 @@ impl<F: PrimeField> PicusModule<F> {
         var.to_circom(&normalized_module.context).map(|var| format!("signal {} {};", modifier, var))
       })
       .collect::<Result<Vec<String>, _>>()?
-      .join("\n");
+      .join("\n  ");
 
     let constraints = normalized_module
       .statements
       .iter()
       .map(|statement| statement.to_circom(&normalized_module.context))
       .collect::<Result<Vec<String>, _>>()?
-      .join("\n");
+      .join("\n  ");
     Ok(format!(
-      "template {} {{\n// Declarations\n{}\n// Constraints\n{}\n}}",
+      "template {} {{\n  // Declarations\n  {}\n\n  // Constraints\n  {}\n}}",
       normalized_module.name, declarations, constraints
     ))
+  }
+}
+
+impl<F: PrimeField> PicusProgram<F> {
+  /// Convert picus program to a string-representation of a circom module
+  pub fn to_circom(&self) -> Result<String, String> {
+    let templates = self.modules.iter()
+      .map(|module| module.to_circom())
+      .collect::<Result<Vec<_>, _>>()?;
+    Ok(templates.join("\n"))
   }
 }
 
@@ -259,13 +268,14 @@ mod tests {
     assert_eq!(
       module.to_circom()?,
       "template main {
-// Declarations
-signal input aL_0;
-signal input aR_0;
-signal output aO_0;
-// Constraints
-(1) * (aL_0) + (1) * (aR_0) + (115792089237316195423570985008687907852837564279074904382605163141518161494336) * (aO_0) === 0;
-(aL_0) * (aR_0) === aO_0;
+  // Declarations
+  signal input aL_0;
+  signal input aR_0;
+  signal output aO_0;
+
+  // Constraints
+  (1) * (aL_0) + (1) * (aR_0) + (115792089237316195423570985008687907852837564279074904382605163141518161494336) * (aO_0) === 0;
+  (aL_0) * (aR_0) === aO_0;
 }"
     );
     Ok(())
