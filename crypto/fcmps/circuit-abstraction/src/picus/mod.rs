@@ -28,7 +28,7 @@ impl PicusContext {
   /// Adds a new variable to the program context.
   fn add_variable(&mut self, name: Option<&str>) -> Result<usize, String> {
     let index = self.num_variables;
-    if let Some(name) = name{
+    if let Some(name) = name {
       if self.variable_names.contains(name) {
         return Err(format!("Variable name {} already exists", name));
       }
@@ -94,46 +94,46 @@ pub struct PicusProgram<F: PrimeField> {
 }
 
 impl<F: PrimeField> From<PicusVariable> for PicusTerm<F> {
-    fn from(val: PicusVariable) -> Self {
-      PicusTerm::Variable(val)
-    }
+  fn from(val: PicusVariable) -> Self {
+    PicusTerm::Variable(val)
+  }
 }
 
 impl<F: PrimeField> From<PicusTerm<F>> for PicusExpression<F> {
-    fn from(val: PicusTerm<F>) -> Self {
-      PicusExpression::PicusTerm(val)
-    }
+  fn from(val: PicusTerm<F>) -> Self {
+    PicusExpression::PicusTerm(val)
+  }
 }
 
 impl<F: PrimeField> From<PicusVariable> for PicusExpression<F> {
-    fn from(val: PicusVariable) -> Self {
-      let term: PicusTerm<F> = val.into();
-      term.into()
-    }
+  fn from(val: PicusVariable) -> Self {
+    let term: PicusTerm<F> = val.into();
+    term.into()
+  }
 }
 
 impl<F: PrimeField> Mul for PicusExpression<F> {
-    type Output = Self;
+  type Output = Self;
 
-    fn mul(self, rhs: Self) -> Self::Output {
-      PicusExpression::Multiply(BinaryOperatorArgs { left: Box::new(self), right: Box::new(rhs) })
-    }
+  fn mul(self, rhs: Self) -> Self::Output {
+    PicusExpression::Multiply(BinaryOperatorArgs { left: Box::new(self), right: Box::new(rhs) })
+  }
 }
 
 impl<F: PrimeField> Add for PicusExpression<F> {
-    type Output = Self;
+  type Output = Self;
 
-    fn add(self, rhs: Self) -> Self::Output {
-      PicusExpression::Add(BinaryOperatorArgs { left: Box::new(self), right: Box::new(rhs) })
-    }
+  fn add(self, rhs: Self) -> Self::Output {
+    PicusExpression::Add(BinaryOperatorArgs { left: Box::new(self), right: Box::new(rhs) })
+  }
 }
 
 impl<F: PrimeField> Sub for PicusExpression<F> {
-    type Output = Self;
+  type Output = Self;
 
-    fn sub(self, rhs: Self) -> Self::Output {
-      PicusExpression::Subtract(BinaryOperatorArgs { left: Box::new(self), right: Box::new(rhs) })
-    }
+  fn sub(self, rhs: Self) -> Self::Output {
+    PicusExpression::Subtract(BinaryOperatorArgs { left: Box::new(self), right: Box::new(rhs) })
+  }
 }
 
 impl<F: PrimeField> PicusExpression<F> {
@@ -173,7 +173,8 @@ impl<F: PrimeField> PicusModule<F> {
   }
 
   pub fn apply_constraints<C>(&mut self, circuit: &Circuit<C>) -> Result<(), String>
-  where C: Ciphersuite<F = F>
+  where
+    C: Ciphersuite<F = F>,
   {
     // Ensure we can support the lincombs
     let some_wv = circuit.constraints.iter().any(|constraint| !constraint.WV().is_empty());
@@ -199,40 +200,47 @@ impl<F: PrimeField> PicusModule<F> {
 
     // Apply linear constraints
     for constraint in &circuit.constraints {
-
-      let mut var_to_coefficient: HashMap<_, _> = HashMap::<PicusVariable, PicusExpression<F>>::new();
+      let mut var_to_coefficient: HashMap<_, _> =
+        HashMap::<PicusVariable, PicusExpression<F>>::new();
       for (index, coefficient) in constraint.WL() {
         let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
-        let picus_variable = self.circuit_variable_to_picus_variable(&Variable::aL(*index), circuit).unwrap();
-        let _ = *var_to_coefficient.entry(picus_variable)
+        let picus_variable =
+          self.circuit_variable_to_picus_variable(&Variable::aL(*index), circuit).unwrap();
+        let _ = *var_to_coefficient
+          .entry(picus_variable)
           .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
           .or_insert(coefficient);
       }
       for (index, coefficient) in constraint.WR() {
         let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
-        let picus_variable = self.circuit_variable_to_picus_variable(&Variable::aR(*index), circuit).unwrap();
-        let _ = *var_to_coefficient.entry(picus_variable)
+        let picus_variable =
+          self.circuit_variable_to_picus_variable(&Variable::aR(*index), circuit).unwrap();
+        let _ = *var_to_coefficient
+          .entry(picus_variable)
           .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
           .or_insert(coefficient);
       }
       for (index, coefficient) in constraint.WO() {
         let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
-        let picus_variable = self.circuit_variable_to_picus_variable(&Variable::aO(*index), circuit).unwrap();
-        let _ = *var_to_coefficient.entry(picus_variable)
+        let picus_variable =
+          self.circuit_variable_to_picus_variable(&Variable::aO(*index), circuit).unwrap();
+        let _ = *var_to_coefficient
+          .entry(picus_variable)
           .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
           .or_insert(coefficient);
       }
       let terms = (0..self.num_variables())
-          .filter_map(|picus_index| var_to_coefficient.get(&PicusVariable(picus_index))
+        .filter_map(|picus_index| {
+          var_to_coefficient
+            .get(&PicusVariable(picus_index))
             .map(|coeff| (PicusVariable(picus_index), coeff.clone()))
-          )
-          .map(|(variable, coefficient)| coefficient * variable.into())
+        })
+        .map(|(variable, coefficient)| coefficient * variable.into())
         .collect::<Vec<PicusExpression<C::F>>>();
-      let maybe_sum = terms.into_iter()
-        .reduce(|cumulative_sum, expr| cumulative_sum + expr);
+      let maybe_sum = terms.into_iter().reduce(|cumulative_sum, expr| cumulative_sum + expr);
       let sum = match maybe_sum {
-          Some(sum) => sum,
-          None => continue,
+        Some(sum) => sum,
+        None => continue,
       };
 
       let negative_c: PicusExpression<F> = PicusTerm::Constant(constraint.c().neg()).into();
@@ -240,25 +248,30 @@ impl<F: PrimeField> PicusModule<F> {
     }
     // Apply quadratic constraints
     for i in 0..circuit.muls() {
-      let aL: PicusExpression<F> = self.circuit_variable_to_picus_variable(&Variable::aL(i), circuit).unwrap().into();
-      let aR: PicusExpression<F> = self.circuit_variable_to_picus_variable(&Variable::aR(i), circuit).unwrap().into();
-      let aO: PicusExpression<F> = self.circuit_variable_to_picus_variable(&Variable::aO(i), circuit).unwrap().into();
-      self.statements.push(
-        PicusStatement::Assert((aL * aR).equals(aO))
-      );
+      let aL: PicusExpression<F> =
+        self.circuit_variable_to_picus_variable(&Variable::aL(i), circuit).unwrap().into();
+      let aR: PicusExpression<F> =
+        self.circuit_variable_to_picus_variable(&Variable::aR(i), circuit).unwrap().into();
+      let aO: PicusExpression<F> =
+        self.circuit_variable_to_picus_variable(&Variable::aO(i), circuit).unwrap().into();
+      self.statements.push(PicusStatement::Assert((aL * aR).equals(aO)));
     }
 
     Ok(())
   }
 
   #[must_use]
-  pub fn circuit_variable_to_picus_variable<C: Ciphersuite>(&self, var: &Variable, circuit: &Circuit<C>) -> Option<PicusVariable> {
+  pub fn circuit_variable_to_picus_variable<C: Ciphersuite>(
+    &self,
+    var: &Variable,
+    circuit: &Circuit<C>,
+  ) -> Option<PicusVariable> {
     let picus_index = match var {
-        Variable::aL(index) => Some(*index),
-        Variable::aR(index) => Some(*index + circuit.muls()),
-        Variable::aO(index) => Some(*index + 2 * circuit.muls()),
-        Variable::CG { commitment: _, index: _ } => None,
-        Variable::V(_) => None,
+      Variable::aL(index) => Some(*index),
+      Variable::aR(index) => Some(*index + circuit.muls()),
+      Variable::aO(index) => Some(*index + 2 * circuit.muls()),
+      Variable::CG { commitment: _, index: _ } => None,
+      Variable::V(_) => None,
     };
     picus_index.map(PicusVariable)
   }
@@ -274,10 +287,12 @@ impl<F: PrimeField> PicusProgram<F> {
 mod tests {
 
   use ciphersuite::{Ciphersuite, Secp256k1};
-use generalized_bulletproofs::arithmetic_circuit_proof::LinComb;
+  use generalized_bulletproofs::arithmetic_circuit_proof::LinComb;
 
-use crate::{picus::{PicusModule, PicusProgram}, Circuit};
-
+  use crate::{
+    picus::{PicusModule, PicusProgram},
+    Circuit,
+  };
 
   // https://www.cs.utexas.edu/~moore/acl2/manuals/current/manual/index-seo.php?xkey=PRIMES____SECP256K1-GROUP-PRIME
   // 115792089237316195423570985008687907852837564279074904382605163141518161494337
@@ -304,16 +319,9 @@ use crate::{picus::{PicusModule, PicusProgram}, Circuit};
 
   #[test]
   fn test_circuit_to_picus() -> Result<(), String> {
-    let mut circuit: Circuit<C> = Circuit::<C> {
-      constraints: vec![],
-      muls: 0,
-      prover: None
-    };
+    let mut circuit: Circuit<C> = Circuit::<C> { constraints: vec![], muls: 0, prover: None };
     let (l, r, o) = circuit.mul(None, None, None);
-    let lincomb = LinComb::empty()
-      .term(F::ONE, l)
-      .term(F::ONE, r)
-      .term(F::ONE.negate(), o);
+    let lincomb = LinComb::empty().term(F::ONE, l).term(F::ONE, r).term(F::ONE.negate(), o);
     circuit.constrain_equal_to_zero(lincomb);
 
     let mut module: PicusModule<F> = PicusModule::new("main".to_string());
@@ -339,16 +347,9 @@ use crate::{picus::{PicusModule, PicusProgram}, Circuit};
 
   #[test]
   fn test_circuit_to_picus_inverse() -> Result<(), String> {
-    let mut circuit: Circuit<C> = Circuit::<C> {
-      constraints: vec![],
-      muls: 0,
-      prover: None
-    };
+    let mut circuit: Circuit<C> = Circuit::<C> { constraints: vec![], muls: 0, prover: None };
     let (l, r, o) = circuit.mul(None, None, None);
-    let lincomb = LinComb::empty()
-      .term(F::ONE, l)
-      .term(F::ONE, r)
-      .term(F::ONE.negate(), o);
+    let lincomb = LinComb::empty().term(F::ONE, l).term(F::ONE, r).term(F::ONE.negate(), o);
     circuit.constrain_equal_to_zero(lincomb);
     circuit.inverse(Some(l.into()), None);
 

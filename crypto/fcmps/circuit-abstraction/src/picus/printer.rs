@@ -3,7 +3,10 @@ use core::fmt::{self, Display, Formatter};
 use ciphersuite::group::ff::PrimeField;
 use crypto_bigint::{NonZero, U256, Encoding};
 
-use super::{PicusContext, PicusExpression, PicusModule, PicusProgram, PicusStatement, PicusTerm, PicusVariable};
+use super::{
+  PicusContext, PicusExpression, PicusModule, PicusProgram, PicusStatement, PicusTerm,
+  PicusVariable,
+};
 
 trait DisplayWithContext {
   fn fmt(&self, f: &mut Formatter<'_>, context: &PicusContext) -> std::fmt::Result;
