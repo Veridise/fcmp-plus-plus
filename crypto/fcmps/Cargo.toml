@@ -24,9 +24,9 @@ generic-array = { version = "1", default-features = false, features = ["alloc"] 
 blake2 = { version = "0.10", default-features = false }
 
 multiexp = { path = "../multiexp", version = "0.4", default-features = false, features = ["batch"] }
-ciphersuite = { path = "../ciphersuite", version = "0.4", default-features = false }
+ciphersuite = { path = "../ciphersuite", version = "0.4", features = ["ed25519", "helioselene"]}
 
-ec-divisors = { path = "../divisors", default-features = false }
+ec-divisors = { path = "../divisors", features = ["ed25519"]}
 generalized-bulletproofs = { path = "../generalized-bulletproofs", default-features = false }
 generalized-bulletproofs-circuit-abstraction = { path = "./circuit-abstraction", default-features = false }
 generalized-bulletproofs-ec-gadgets = { path = "./ec-gadgets", default-features = false }

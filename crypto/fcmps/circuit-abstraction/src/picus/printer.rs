@@ -139,7 +139,22 @@ impl<F: PrimeField> Display for PicusModule<F> {
 
 impl<F: PrimeField> Display for PicusProgram<F> {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-    let modulus: U256 = U256::from_be_hex(F::MODULUS);
+    println!("{}", F::MODULUS.bytes().len());
+    println!("{}", F::MODULUS);
+    // Normalize
+    let slice_start = if F::MODULUS.starts_with("0x") {
+      2
+    } else {
+      0
+    };
+    let mut modulus_hex = F::MODULUS[slice_start..].to_string();
+    let expected_length = 256 / 4;
+    if modulus_hex.len() < expected_length {
+      modulus_hex = "0".repeat(expected_length - modulus_hex.len());
+    } else if modulus_hex.len() > expected_length {
+      unimplemented!("Error: Fields larger than 256 bits are not supported");
+    }
+    let modulus: U256 = U256::from_be_hex(&modulus_hex);
     let decimal_representation = bigint_to_decimal(modulus);
     writeln!(f, "(prime-number {})", decimal_representation)?;
     for module in &self.modules {

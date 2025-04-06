@@ -3,18 +3,21 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use ciphersuite::{Ciphersuite, Secp256k1};
+use ciphersuite::{group::ff::PrimeField, Ciphersuite, Secp256k1, Selene, Ed25519};
+use ec_divisors::DivisorCurve;
 
 use generalized_bulletproofs_circuit_abstraction::picus::PicusProgram;
 use generalized_bulletproofs_circuit_abstraction::{
   picus::{PicusModule, PicusVariable},
   Circuit, LinComb, Variable,
 };
-use ciphersuite::group::ff::{Field, PrimeField};
+use ciphersuite::group::ff::Field;
+use generalized_bulletproofs_ec_gadgets::{CurveSpec, EcGadgets};
 
 /// Inputs to the picus analyzer
 struct PicusInputs<C: Ciphersuite> {
-  circuit: Circuit<C>,
+  assume_circuits: Vec<Circuit<C>>,
+  assert_circuits: Vec<Circuit<C>>,
   input_vars: Vec<Variable>,
 }
 
@@ -22,12 +25,22 @@ impl<C: Ciphersuite> PicusInputs<C> {
   /// Converts circuit into a Picus module, marking l and r as inputs.
   fn to_picus_module(&self, name: &str) -> Result<PicusModule<C::F>, String> {
     let mut module = PicusModule::new(name.to_string());
-    module.apply_constraints(&self.circuit)?;
+    self
+      .assume_circuits
+      .iter()
+      .map(|circuit| module.assume_constraints(circuit))
+      .collect::<Result<Vec<_>, _>>()?;
+    self
+      .assert_circuits
+      .iter()
+      .map(|circuit| module.apply_constraints(circuit))
+      .collect::<Result<Vec<_>, _>>()?;
+
     self
       .input_vars
       .iter()
       // TODO: Handle invalid unwrap
-      .map(|input_var| module.circuit_variable_to_picus_variable(input_var, &self.circuit).unwrap())
+      .map(|input_var| module.circuit_var_to_picus_var(input_var).unwrap())
       .collect::<Vec<PicusVariable>>()
       .into_iter()
       .for_each(|picus_var| {
@@ -37,8 +50,8 @@ impl<C: Ciphersuite> PicusInputs<C> {
   }
 }
 
-/// 1. Generates a circuit and returns it along with the two variables (l and r)
-///    that will be marked as inputs in the Picus module.
+/// Generates a circuit and returns it along with the two variables (l and r)
+/// that will be marked as inputs in the Picus module.
 fn generate_dummy_circuit<C: Ciphersuite>() -> PicusInputs<C> {
   let mut circuit: Circuit<C> = Circuit::<C>::empty();
 
@@ -52,7 +65,58 @@ fn generate_dummy_circuit<C: Ciphersuite>() -> PicusInputs<C> {
   circuit.inverse(Some(l.into()), None);
 
   // Return the circuit along with variables l and r.
-  PicusInputs { circuit, input_vars: vec![l, r] }
+  PicusInputs { assume_circuits: vec![], assert_circuits: vec![circuit], input_vars: vec![l, r] }
+}
+
+fn fe_to_scalar<C>(f: <C::G as DivisorCurve>::FieldElement) -> C::F
+where
+  C: Ciphersuite,
+  <C as Ciphersuite>::G: DivisorCurve,
+{
+  // TODO: Handle big vs little endian
+  let repr = f.to_repr();
+  let repr_bytes: &[u8] = repr.as_ref();
+  let scalar = C::F::from(0);
+  let mut scalar_repr = scalar.to_repr();
+  let mut scalar_bytes: &mut [u8] = scalar_repr.as_mut();
+  assert_eq!(repr_bytes.len(), scalar_bytes.len());
+  for (i, byte) in repr_bytes.iter().enumerate() {
+    scalar_bytes[i] = *byte;
+  }
+  println!("{:?}", repr_bytes);
+  println!("{:?}", scalar_bytes);
+  println!("{}", C::F::MODULUS);
+  println!("{}", <<C as Ciphersuite>::G as DivisorCurve>::FieldElement::MODULUS);
+  C::F::from_repr(scalar_repr).expect("Serialization/de-serialization failed")
+}
+
+fn generate_ec_incomplete_add_fixed_circuit<C, BaseCurve>() -> PicusInputs<C>
+where
+  C: Ciphersuite,
+  BaseCurve: DivisorCurve<FieldElement = C::F>,
+{
+  // Build variables
+  let a = BaseCurve::generator();
+  let a = BaseCurve::to_xy(a).expect("Generator is on curve");
+  let b = (Variable::aL(0), Variable::aL(1));
+  let c = (Variable::aL(2), Variable::aL(3));
+
+  // Add on-curve assumptions
+  let curve = CurveSpec { a: BaseCurve::a(), b: BaseCurve::b() };
+  let mut on_curve_circuit: Circuit<C> = Circuit::<C>::empty();
+  let b = on_curve_circuit.on_curve(&curve, b);
+  let c = on_curve_circuit.on_curve(&curve, c);
+
+  // Constrain addition
+  let mut addition_circuit: Circuit<C> = Circuit::<C>::empty();
+  addition_circuit.incomplete_add_fixed(a, b, c);
+
+  // Return the circuit along with input variables (a is fixed, b is input, and c is output).
+  PicusInputs {
+    assume_circuits: vec![on_curve_circuit],
+    assert_circuits: vec![addition_circuit],
+    input_vars: vec![b.x(), b.y()],
+  }
 }
 
 /// 3. Writes the printed Picus module to a file at the given path.
@@ -96,7 +160,8 @@ where
 /// 4. Main function which builds the circuit, converts it to a Picus module,
 ///    writes it to a hard-coded file, and also prints the module to stdout.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-  type C = Secp256k1;
+  type BaseCurve = <Ed25519 as Ciphersuite>::G;
+  type C = Selene;
 
   // Create an "out" directory inside the crate directory.
   let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -104,6 +169,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   fs::create_dir_all(&out_dir)?;
 
   generate_and_write_picus_program(&out_dir, "dummy", generate_dummy_circuit::<C>())?;
+  generate_and_write_picus_program(
+    &out_dir,
+    "ec_incomplete_add_fixed",
+    generate_ec_incomplete_add_fixed_circuit::<C, BaseCurve>(),
+  )?;
 
   Ok(())
 }

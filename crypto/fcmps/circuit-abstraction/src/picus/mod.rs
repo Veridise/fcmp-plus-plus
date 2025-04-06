@@ -230,11 +230,6 @@ impl<F: PrimeField> PicusModule<F> {
       return Err("Constraint has wcg != 0".to_string());
     }
 
-    // Make sure no existing variables
-    if self.num_variables() > 0 {
-      return Err(format!("Module already has {} > 0 variables defined", self.num_variables()));
-    }
-
     // Make sure we have enough variables
     for variable_type in vec![Variable::aL, Variable::aR, Variable::aO] {
       for i in 0..circuit.muls() {
