@@ -25,21 +25,27 @@ impl PicusVariableInfo {
 
 pub(crate) struct PicusContext {
   variable_info: Vec<PicusVariableInfo>,
-  variable_names: HashSet<String>,
+  variable_name_to_index: HashMap<String, usize>,
 }
 
 impl PicusContext {
   fn new() -> Self {
-    PicusContext { variable_info: vec![], variable_names: HashSet::new() }
+    PicusContext { variable_info: vec![], variable_name_to_index: HashMap::new() }
   }
 
   /// Adds a new variable to the program context.
   fn add_variable(&mut self, name: Option<&str>) -> Result<usize, String> {
+    let index = self.variable_info.len();
     self.variable_info.push(PicusVariableInfo::new(name));
     if let Some(name) = name {
-      self.variable_names.insert(name.to_string());
+      self.variable_name_to_index.insert(name.to_string(), index);
     }
-    Ok(self.variable_info.len() - 1)
+    Ok(index)
+  }
+
+  /// Retrieve a variable by its name
+  fn get_variable_by_name(&self, name: &str) -> Option<PicusVariable> {
+    self.variable_name_to_index.get(name).cloned().map(PicusVariable)
   }
 
   /// Retrieves the name of a variable given its index.
@@ -178,9 +184,39 @@ impl<F: PrimeField> PicusModule<F> {
     self.statements.push(statement);
   }
 
-  /// Convert the Circuit constraints into a form compatible with Picus.
-  /// This will fail if the picus module is not empty
+  /// Assert the circuit constraints inside this module, creating Picus aL_*, aR_*, and aO_*
+  /// variables as necessary
+  ///
+  /// This will fail if the circuit module has committed constraints
   pub fn apply_constraints<C>(&mut self, circuit: &Circuit<C>) -> Result<(), String>
+  where
+    C: Ciphersuite<F = F>,
+  {
+    self.build_statements_from_circuit(circuit, false)
+  }
+
+  /// Assume the circuit constraints inside this module, creating Picus aL_*, aR_*, and aO_*
+  /// variables as necessary
+  ///
+  /// This will fail if the circuit module has committed constraints
+  pub fn assume_constraints<C>(&mut self, circuit: &Circuit<C>) -> Result<(), String>
+  where
+    C: Ciphersuite<F = F>,
+  {
+    self.build_statements_from_circuit(circuit, true)
+  }
+
+  /// Convert Circuit constraints into Picus
+  ///
+  /// Use Assert statements if assume=False, or Assume statements if assume is true
+  ///
+  /// Uses the names aL_*, aR_*, aO_* for the corresponding circuit variables, creating
+  /// them if necessary
+  pub fn build_statements_from_circuit<C>(
+    &mut self,
+    circuit: &Circuit<C>,
+    assume: bool,
+  ) -> Result<(), String>
   where
     C: Ciphersuite<F = F>,
   {
@@ -200,11 +236,18 @@ impl<F: PrimeField> PicusModule<F> {
     }
 
     // Make sure we have enough variables
-    for (_vector_index, base_name) in vec!["aL", "aR", "aO"].into_iter().enumerate() {
+    for variable_type in vec![Variable::aL, Variable::aR, Variable::aO] {
       for i in 0..circuit.muls() {
-        self.fresh_variable(Some(&format!("{}_{}", base_name, i)))?;
+        let circuit_var: Variable = variable_type(i);
+        if let None = self.circuit_var_to_picus_var(&circuit_var) {
+          let var_name = PicusModule::<F>::circuit_var_to_name(&circuit_var);
+          self.fresh_variable(Some(&var_name));
+        }
       }
     }
+
+    let statement_constructor =
+      if assume { PicusStatement::Assume } else { PicusStatement::Assert };
 
     // Apply linear constraints
     for constraint in &circuit.constraints {
@@ -212,8 +255,7 @@ impl<F: PrimeField> PicusModule<F> {
         HashMap::<PicusVariable, PicusExpression<F>>::new();
       for (index, coefficient) in constraint.WL() {
         let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
-        let picus_variable =
-          self.circuit_variable_to_picus_variable(&Variable::aL(*index), circuit).unwrap();
+        let picus_variable = self.circuit_var_to_picus_var(&Variable::aL(*index)).unwrap();
         let _ = *var_to_coefficient
           .entry(picus_variable)
           .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
@@ -221,8 +263,7 @@ impl<F: PrimeField> PicusModule<F> {
       }
       for (index, coefficient) in constraint.WR() {
         let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
-        let picus_variable =
-          self.circuit_variable_to_picus_variable(&Variable::aR(*index), circuit).unwrap();
+        let picus_variable = self.circuit_var_to_picus_var(&Variable::aR(*index)).unwrap();
         let _ = *var_to_coefficient
           .entry(picus_variable)
           .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
@@ -230,8 +271,7 @@ impl<F: PrimeField> PicusModule<F> {
       }
       for (index, coefficient) in constraint.WO() {
         let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
-        let picus_variable =
-          self.circuit_variable_to_picus_variable(&Variable::aO(*index), circuit).unwrap();
+        let picus_variable = self.circuit_var_to_picus_var(&Variable::aO(*index)).unwrap();
         let _ = *var_to_coefficient
           .entry(picus_variable)
           .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
@@ -252,37 +292,36 @@ impl<F: PrimeField> PicusModule<F> {
       };
 
       let negative_c: PicusExpression<F> = PicusTerm::Constant(constraint.c().neg()).into();
-      self.statements.push(PicusStatement::Assert(sum.equals(negative_c)));
+      self.statements.push(statement_constructor(sum.equals(negative_c)));
     }
     // Apply quadratic constraints
     for i in 0..circuit.muls() {
-      let aL: PicusExpression<F> =
-        self.circuit_variable_to_picus_variable(&Variable::aL(i), circuit).unwrap().into();
-      let aR: PicusExpression<F> =
-        self.circuit_variable_to_picus_variable(&Variable::aR(i), circuit).unwrap().into();
-      let aO: PicusExpression<F> =
-        self.circuit_variable_to_picus_variable(&Variable::aO(i), circuit).unwrap().into();
-      self.statements.push(PicusStatement::Assert((aL * aR).equals(aO)));
+      let aL: PicusExpression<F> = self.circuit_var_to_picus_var(&Variable::aL(i)).unwrap().into();
+      let aR: PicusExpression<F> = self.circuit_var_to_picus_var(&Variable::aR(i)).unwrap().into();
+      let aO: PicusExpression<F> = self.circuit_var_to_picus_var(&Variable::aO(i)).unwrap().into();
+      self.statements.push(statement_constructor((aL * aR).equals(aO)));
     }
 
     Ok(())
   }
 
+  /// Get the Picus variable name associated to the provided circuit variable
+  pub fn circuit_var_to_name(var: &Variable) -> String {
+    let (prefix, index) = match var {
+      Variable::aL(index) => ("aL", index),
+      Variable::aR(index) => ("aR", index),
+      Variable::aO(index) => ("aO", index),
+      Variable::CG { commitment, index } => ("aCG", index),
+      Variable::V(index) => ("v", index),
+    };
+    format!("{}_{}", prefix, index)
+  }
+
   /// Get the Picus Variable associated to the circuit variable, or None if there is none
   #[must_use]
-  pub fn circuit_variable_to_picus_variable<C: Ciphersuite>(
-    &self,
-    var: &Variable,
-    circuit: &Circuit<C>,
-  ) -> Option<PicusVariable> {
-    let picus_index = match var {
-      Variable::aL(index) => Some(*index),
-      Variable::aR(index) => Some(*index + circuit.muls()),
-      Variable::aO(index) => Some(*index + 2 * circuit.muls()),
-      Variable::CG { commitment: _, index: _ } => None,
-      Variable::V(_) => None,
-    };
-    picus_index.map(PicusVariable)
+  pub fn circuit_var_to_picus_var(&self, var: &Variable) -> Option<PicusVariable> {
+    let name = PicusModule::<F>::circuit_var_to_name(var);
+    self.context.get_variable_by_name(&name)
   }
 }
 
@@ -336,8 +375,8 @@ mod tests {
 
     let mut module: PicusModule<F> = PicusModule::new("main".to_string());
     module.apply_constraints(&circuit);
-    module.mark_variable_as_input(module.circuit_variable_to_picus_variable(&l, &circuit).unwrap());
-    module.mark_variable_as_input(module.circuit_variable_to_picus_variable(&r, &circuit).unwrap());
+    module.mark_variable_as_input(module.circuit_var_to_picus_var(&l).unwrap());
+    module.mark_variable_as_input(module.circuit_var_to_picus_var(&r).unwrap());
 
     let program = PicusProgram::new(vec![module]);
     let program_text = program.to_string();
@@ -365,8 +404,8 @@ mod tests {
 
     let mut module: PicusModule<F> = PicusModule::new("main".to_string());
     module.apply_constraints(&circuit);
-    module.mark_variable_as_input(module.circuit_variable_to_picus_variable(&l, &circuit).unwrap());
-    module.mark_variable_as_input(module.circuit_variable_to_picus_variable(&r, &circuit).unwrap());
+    module.mark_variable_as_input(module.circuit_var_to_picus_var(&l).unwrap());
+    module.mark_variable_as_input(module.circuit_var_to_picus_var(&r).unwrap());
 
     let program = PicusProgram::new(vec![module]);
     let program_text = program.to_string();

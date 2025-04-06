@@ -293,8 +293,8 @@ mod tests {
 
     let mut module: PicusModule<F> = PicusModule::new("main".to_string());
     module.apply_constraints(&circuit);
-    module.mark_variable_as_input(module.circuit_variable_to_picus_variable(&l, &circuit).unwrap());
-    module.mark_variable_as_input(module.circuit_variable_to_picus_variable(&r, &circuit).unwrap());
+    module.mark_variable_as_input(module.circuit_var_to_picus_var(&l).unwrap());
+    module.mark_variable_as_input(module.circuit_var_to_picus_var(&r).unwrap());
 
     assert_eq!(
       module.to_circom()?,
