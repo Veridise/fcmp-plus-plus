@@ -234,10 +234,7 @@ impl<F: PrimeField> PicusModule<F> {
     for variable_type in vec![Variable::aL, Variable::aR, Variable::aO] {
       for i in 0..circuit.muls() {
         let circuit_var: Variable = variable_type(i);
-        if let None = self.circuit_var_to_picus_var(&circuit_var) {
-          let var_name = PicusModule::<F>::circuit_var_to_name(&circuit_var);
-          self.fresh_variable(Some(&var_name));
-        }
+        self.circuit_var_get_or_create_picus_var(&circuit_var);
       }
     }
 
@@ -317,6 +314,17 @@ impl<F: PrimeField> PicusModule<F> {
   pub fn circuit_var_to_picus_var(&self, var: &Variable) -> Option<PicusVariable> {
     let name = PicusModule::<F>::circuit_var_to_name(var);
     self.context.get_variable_by_name(&name)
+  }
+
+  /// Get or create the picus variable
+  pub fn circuit_var_get_or_create_picus_var(&mut self, var: &Variable) -> PicusVariable {
+    let name = PicusModule::<F>::circuit_var_to_name(var);
+    match self.circuit_var_to_picus_var(var){
+      None => {
+        self.fresh_variable(Some(&name)).expect("Name existence already checked")
+      },
+      Some(var) => var
+    }
   }
 }
 
