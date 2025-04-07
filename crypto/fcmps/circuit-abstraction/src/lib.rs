@@ -72,9 +72,9 @@ pub struct Circuit<C: Ciphersuite> {
 }
 
 impl<C: Ciphersuite> Circuit<C> {
-  /// Create an empty circuit
-  pub fn empty() -> Circuit<C> {
-    Circuit { muls: 0, constraints: vec![], prover: None }
+  /// Create an empty circuit with muls-many pre-existing variables
+  pub fn empty(muls: usize) -> Circuit<C> {
+    Circuit { muls, constraints: vec![], prover: None }
   }
 
   /// Returns the amount of multiplications used by this circuit.

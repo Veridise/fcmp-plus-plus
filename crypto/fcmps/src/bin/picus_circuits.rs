@@ -53,7 +53,7 @@ impl<C: Ciphersuite> PicusInputs<C> {
 /// Generates a circuit and returns it along with the two variables (l and r)
 /// that will be marked as inputs in the Picus module.
 fn generate_dummy_circuit<C: Ciphersuite>() -> PicusInputs<C> {
-  let mut circuit: Circuit<C> = Circuit::<C>::empty();
+  let mut circuit: Circuit<C> = Circuit::<C>::empty(0);
 
   // Create a multiplication gate, capturing the variables.
   let (l, r, o) = circuit.mul(None, None, None);
@@ -103,12 +103,12 @@ where
 
   // Add on-curve assumptions
   let curve = CurveSpec { a: BaseCurve::a(), b: BaseCurve::b() };
-  let mut on_curve_circuit: Circuit<C> = Circuit::<C>::empty();
+  let mut on_curve_circuit: Circuit<C> = Circuit::<C>::empty(0);
   let b = on_curve_circuit.on_curve(&curve, b);
   let c = on_curve_circuit.on_curve(&curve, c);
 
   // Constrain addition
-  let mut addition_circuit: Circuit<C> = Circuit::<C>::empty();
+  let mut addition_circuit: Circuit<C> = Circuit::<C>::empty(on_curve_circuit.muls());
   addition_circuit.incomplete_add_fixed(a, b, c);
 
   // Return the circuit along with input variables (a is fixed, b is input, and c is output).
