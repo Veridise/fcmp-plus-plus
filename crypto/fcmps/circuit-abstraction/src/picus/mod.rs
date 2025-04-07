@@ -11,6 +11,7 @@ use crate::Circuit;
 pub mod printer;
 /// Picus program -> circom code
 pub mod circom;
+mod field_utils;
 
 pub(crate) struct PicusVariableInfo {
   is_input: bool,
