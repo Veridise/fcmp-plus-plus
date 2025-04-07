@@ -1,7 +1,7 @@
 use core::fmt::{self, Display, Formatter};
 
 use ciphersuite::group::ff::PrimeField;
-use crypto_bigint::{NonZero, U256, Encoding};
+use crypto_bigint::{NonZero, U512, Encoding};
 
 use super::{
   PicusContext, PicusExpression, PicusModule, PicusProgram, PicusStatement, PicusTerm,
@@ -53,14 +53,36 @@ impl DisplayWithContext for PicusVariable {
   }
 }
 
-fn bigint_to_decimal(bigint: U256) -> String {
-  if bigint.eq(&U256::ZERO) {
+fn field_to_bigint<F: PrimeField>(f: &F) -> U512 {
+  let is_little_endian = F::ONE.to_repr().as_ref()[0] == 1;
+
+  let repr = f.to_repr();
+  let repr_bytes: &[u8] = repr.as_ref();
+  assert!(repr_bytes.len() <= 64);
+
+  let mut bytes: [u8; 64] = [0; 64];
+  if is_little_endian {
+    for (i, byte) in repr_bytes.iter().enumerate() {
+      bytes[i] = *byte;
+    }
+    U512::from_le_bytes(bytes)
+  }
+  else {
+    for (i, byte) in repr_bytes.iter().enumerate() {
+      bytes[i + 64 - repr_bytes.len()] = *byte;
+    }
+    U512::from_be_bytes(bytes)
+  }
+}
+
+fn bigint_to_decimal(bigint: U512) -> String {
+  if bigint.eq(&U512::ZERO) {
     return "0".to_string();
   }
   let mut bigint = bigint;
   let mut digits: Vec<String> = vec![];
-  let ten = NonZero::new(U256::from_u8(10u8)).unwrap();
-  while bigint > U256::ZERO {
+  let ten = NonZero::new(U512::from_u8(10u8)).unwrap();
+  while bigint > U512::ZERO {
     let (quotient, remainder) = bigint.div_rem(&ten);
     let remainder: u64 = remainder.as_words()[0];
     digits.push(remainder.to_string());
@@ -75,10 +97,7 @@ impl<F: PrimeField> DisplayWithContext for PicusTerm<F> {
   fn fmt(&self, f: &mut Formatter<'_>, context: &PicusContext) -> std::fmt::Result {
     match self {
       PicusTerm::Constant(value) => {
-        let repr = value.to_repr();
-        let repr_bytes: &[u8] = repr.as_ref();
-        // TODO: depending on the field implementation, repr may be little-endian.
-        let bigint: U256 = U256::from_be_bytes(repr_bytes.try_into().unwrap());
+        let bigint: U512 = field_to_bigint(value);
         let decimal_representation = bigint_to_decimal(bigint);
         write!(f, "{}", decimal_representation)
       }
@@ -137,29 +156,45 @@ impl<F: PrimeField> Display for PicusModule<F> {
   }
 }
 
-impl<F: PrimeField> Display for PicusProgram<F> {
-  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-    println!("{}", F::MODULUS.bytes().len());
-    println!("{}", F::MODULUS);
-    // Normalize
-    let slice_start = if F::MODULUS.starts_with("0x") {
+fn fmt_modulus(modulus_hex: &str) -> String {
+    let slice_start = if modulus_hex.starts_with("0x") {
       2
     } else {
       0
     };
-    let mut modulus_hex = F::MODULUS[slice_start..].to_string();
-    let expected_length = 256 / 4;
+    let mut modulus_hex = modulus_hex[slice_start..].to_string();
+    let expected_length = 512 / 4;
     if modulus_hex.len() < expected_length {
-      modulus_hex = "0".repeat(expected_length - modulus_hex.len());
+      modulus_hex = "0".repeat(expected_length - modulus_hex.len()) + &modulus_hex;
     } else if modulus_hex.len() > expected_length {
-      unimplemented!("Error: Fields larger than 256 bits are not supported");
+      unimplemented!("Error: Fields larger than 512 bits are not supported");
     }
-    let modulus: U256 = U256::from_be_hex(&modulus_hex);
-    let decimal_representation = bigint_to_decimal(modulus);
+    let modulus: U512= U512::from_be_hex(&modulus_hex);
+    bigint_to_decimal(modulus)
+}
+
+impl<F: PrimeField> Display for PicusProgram<F> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    let decimal_representation = fmt_modulus(F::MODULUS);
     writeln!(f, "(prime-number {})", decimal_representation)?;
     for module in &self.modules {
       writeln!(f, "{}", module)?;
     }
     Ok(())
+  }
+}
+
+#[cfg(test)]
+mod test {
+use ciphersuite::{Ciphersuite, Secp256k1};
+
+use crate::picus::printer::{bigint_to_decimal, field_to_bigint, fmt_modulus};
+
+  #[test]
+  fn test_bigint_to_decimal() {
+    const SELENE_MODULUS_STR: &str = "7fffffffffffffffffffffffffffffffbf7f782cb7656b586eb6d2727927c79f";
+    assert_eq!("57896044618658097711785492504343953926549254372227246365156541811699034343327", fmt_modulus(SELENE_MODULUS_STR));
+
+    assert_eq!("1", bigint_to_decimal(field_to_bigint(&<Secp256k1 as Ciphersuite>::F::ONE)));
   }
 }
