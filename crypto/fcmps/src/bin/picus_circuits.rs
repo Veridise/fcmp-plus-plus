@@ -105,11 +105,11 @@ where
   let curve = CurveSpec { a: BaseCurve::a(), b: BaseCurve::b() };
   let mut on_curve_circuit: Circuit<C> = Circuit::<C>::empty();
   let b = on_curve_circuit.on_curve(&curve, b);
-  // let c = on_curve_circuit.on_curve(&curve, c);
+  let c = on_curve_circuit.on_curve(&curve, c);
 
   // Constrain addition
   let mut addition_circuit: Circuit<C> = Circuit::<C>::empty();
-  // addition_circuit.incomplete_add_fixed(a, b, c);
+  addition_circuit.incomplete_add_fixed(a, b, c);
 
   // Return the circuit along with input variables (a is fixed, b is input, and c is output).
   PicusInputs {
