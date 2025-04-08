@@ -4,30 +4,30 @@ use ciphersuite::group::ff::PrimeField;
 use crypto_bigint::{Encoding, NonZero, Uint, U512};
 
 /// Field to a crypto bigint
-fn field_to_bigint<const N: usize, F: PrimeField>(f: &F) -> Uint<N>
-where Uint<N>: Encoding
+fn field_to_bigint<const LIMBS: usize, F: PrimeField>(f: &F) -> Uint<LIMBS>
+where Uint<LIMBS>: Encoding
 {
   let is_little_endian = F::ONE.to_repr().as_ref()[0] == 1;
 
   let repr = f.to_repr();
   let repr_bytes: &[u8] = repr.as_ref();
 
-  let zero = Uint::<N>::ZERO;
+  let zero = Uint::<LIMBS>::ZERO;
   if is_little_endian {
     let mut repr = zero.to_le_bytes();
     let mut bytes: &mut [u8] = repr.as_mut();
     for (i, byte) in repr_bytes.iter().enumerate() {
       bytes[i] = *byte;
     }
-    Uint::<N>::from_le_bytes(repr)
+    Uint::<LIMBS>::from_le_bytes(repr)
   }
   else {
     let mut repr = zero.to_be_bytes();
     let mut bytes: &mut [u8] = repr.as_mut();
     for (i, byte) in repr_bytes.iter().enumerate() {
-      bytes[i + N / 8 - repr_bytes.len()] = *byte;
+      bytes[i + 8 * LIMBS - repr_bytes.len()] = *byte;
     }
-    Uint::<N>::from_be_bytes(repr)
+    Uint::<LIMBS>::from_be_bytes(repr)
   }
 }
 
@@ -50,7 +50,7 @@ fn bigint_to_decimal<const N: usize>(bigint: Uint<N>) -> String {
   digits.join("")
 }
 
-fn fmt_modulus(modulus_hex: &str) -> String {
+pub(crate) fn fmt_modulus(modulus_hex: &str) -> String {
     let slice_start = if modulus_hex.starts_with("0x") {
       2
     } else {
@@ -68,15 +68,15 @@ fn fmt_modulus(modulus_hex: &str) -> String {
 }
 
 /// Struct representing a bigint in a field
-struct PrintableBigint<const N: usize> where Uint<N>: Encoding {
-    magnitude: Uint<N>,
+pub(crate) struct PrintableBigint {
+    magnitude: U512,
     is_negative: bool,
 }
 
-impl<const N: usize> PrintableBigint<N> where Uint<N>: Encoding {
-    fn from_field<F: PrimeField>(f: &F) -> Self {
-        let magnitude = field_to_bigint(f);
-        let neg_magnitude = field_to_bigint(&f.neg());
+impl PrintableBigint {
+    pub(crate) fn from_field<F: PrimeField>(f: &F) -> Self {
+        let magnitude: U512 = field_to_bigint(f);
+        let neg_magnitude: U512 = field_to_bigint(&f.neg());
         if magnitude.le(&neg_magnitude) {
             PrintableBigint {
                 magnitude,
@@ -92,7 +92,7 @@ impl<const N: usize> PrintableBigint<N> where Uint<N>: Encoding {
     }
 }
 
-impl<const N: usize> Display for PrintableBigint<N> where Uint<N>: Encoding {
+impl Display for PrintableBigint {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let sign = if self.is_negative {
             "-"
@@ -102,4 +102,22 @@ impl<const N: usize> Display for PrintableBigint<N> where Uint<N>: Encoding {
         let magnitude = bigint_to_decimal(self.magnitude);
         write!(f, "{}{}", sign, magnitude)
     }
+}
+
+#[cfg(test)]
+mod test {
+use ciphersuite::{Ciphersuite, Secp256k1};
+
+use crate::picus::field_utils::{bigint_to_decimal, field_to_bigint, PrintableBigint};
+
+use super::fmt_modulus;
+
+  #[test]
+  fn test_bigint_to_decimal() {
+    const SELENE_MODULUS_STR: &str = "7fffffffffffffffffffffffffffffffbf7f782cb7656b586eb6d2727927c79f";
+    assert_eq!("57896044618658097711785492504343953926549254372227246365156541811699034343327", fmt_modulus(SELENE_MODULUS_STR));
+
+    let formatted = PrintableBigint::from_field(&<Secp256k1 as Ciphersuite>::F::ONE).to_string();
+    assert_eq!("1", formatted);
+  }
 }
