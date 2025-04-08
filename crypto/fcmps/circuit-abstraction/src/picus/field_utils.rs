@@ -16,14 +16,14 @@ where
   let zero = Uint::<LIMBS>::ZERO;
   if is_little_endian {
     let mut repr = zero.to_le_bytes();
-    let mut bytes: &mut [u8] = repr.as_mut();
+    let bytes: &mut [u8] = repr.as_mut();
     for (i, byte) in repr_bytes.iter().enumerate() {
       bytes[i] = *byte;
     }
     Uint::<LIMBS>::from_le_bytes(repr)
   } else {
     let mut repr = zero.to_be_bytes();
-    let mut bytes: &mut [u8] = repr.as_mut();
+    let bytes: &mut [u8] = repr.as_mut();
     for (i, byte) in repr_bytes.iter().enumerate() {
       bytes[i + 8 * LIMBS - repr_bytes.len()] = *byte;
     }
@@ -70,7 +70,7 @@ pub struct PrintableBigint {
 }
 
 impl PrintableBigint {
-    /// Create a printable bigint from the provided field
+  /// Create a printable bigint from the provided field
   pub fn from_field<F: PrimeField>(f: &F) -> Self {
     let magnitude: U512 = field_to_bigint(f);
     let neg_magnitude: U512 = field_to_bigint(&f.neg());
