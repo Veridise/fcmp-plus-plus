@@ -276,7 +276,7 @@ mod tests {
   use generalized_bulletproofs::arithmetic_circuit_proof::LinComb;
 
   use crate::{
-    picus::{PicusModule, PicusProgram},
+    picus::{field_utils::PrintableBigint, PicusModule, PicusProgram},
     Circuit,
   };
 
@@ -296,9 +296,11 @@ mod tests {
     module.mark_variable_as_input(module.circuit_var_to_picus_var(&l).unwrap());
     module.mark_variable_as_input(module.circuit_var_to_picus_var(&r).unwrap());
 
+    let negative_one = PrintableBigint::from_field(&-F::ONE).to_string();
     assert_eq!(
       module.to_circom()?,
-      "template main() {
+      format!(
+        "template main() {{
   // Declarations
   signal input aL_0;
   signal input aR_0;
@@ -306,9 +308,11 @@ mod tests {
   aO_0 <-- 0; // dummy assignment
 
   // Constraints
-  (1) * (aL_0) + (1) * (aR_0) + (-1) * (aO_0) === 0;
+  (1) * (aL_0) + (1) * (aR_0) + ({}) * (aO_0) === 0;
   (aL_0) * (aR_0) === aO_0;
-}"
+}}",
+        negative_one
+      )
     );
     Ok(())
   }

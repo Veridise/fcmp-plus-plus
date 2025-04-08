@@ -320,11 +320,9 @@ impl<F: PrimeField> PicusModule<F> {
   /// Get or create the picus variable
   pub fn circuit_var_get_or_create_picus_var(&mut self, var: &Variable) -> PicusVariable {
     let name = PicusModule::<F>::circuit_var_to_name(var);
-    match self.circuit_var_to_picus_var(var){
-      None => {
-        self.fresh_variable(Some(&name)).expect("Name existence already checked")
-      },
-      Some(var) => var
+    match self.circuit_var_to_picus_var(var) {
+      None => self.fresh_variable(Some(&name)).expect("Name existence already checked"),
+      Some(var) => var,
     }
   }
 }
@@ -343,7 +341,7 @@ mod tests {
   use generalized_bulletproofs::arithmetic_circuit_proof::LinComb;
 
   use crate::{
-    picus::{PicusModule, PicusProgram},
+    picus::{field_utils::PrintableBigint, PicusModule, PicusProgram},
     Circuit,
   };
 
@@ -382,19 +380,20 @@ mod tests {
     module.mark_variable_as_input(module.circuit_var_to_picus_var(&l).unwrap());
     module.mark_variable_as_input(module.circuit_var_to_picus_var(&r).unwrap());
 
+    let negative_one = PrintableBigint::from_field(&-F::ONE).to_string();
     let program = PicusProgram::new(vec![module]);
     let program_text = program.to_string();
     assert_eq!(
       program_text,
-      "(prime-number 115792089237316195423570985008687907852837564279074904382605163141518161494337)
+      format!("(prime-number 115792089237316195423570985008687907852837564279074904382605163141518161494337)
 (begin-module main)
   (input aL_0)
   (input aR_0)
   (output aO_0)
-  (assert (= (+ (+ (* 1 aL_0) (* 1 aR_0)) (* -1 aO_0)) 0))
+  (assert (= (+ (+ (* 1 aL_0) (* 1 aR_0)) (* {} aO_0)) 0))
   (assert (= (* aL_0 aR_0) aO_0))
-(end-module)\n"
-    );
+(end-module)\n", negative_one
+    ));
     Ok(())
   }
 
@@ -412,10 +411,11 @@ mod tests {
     module.mark_variable_as_input(module.circuit_var_to_picus_var(&r).unwrap());
 
     let program = PicusProgram::new(vec![module]);
+    let negative_one = PrintableBigint::from_field(&-F::ONE).to_string();
     let program_text = program.to_string();
     assert_eq!(
       program_text,
-      "(prime-number 115792089237316195423570985008687907852837564279074904382605163141518161494337)
+      format!("(prime-number 115792089237316195423570985008687907852837564279074904382605163141518161494337)
 (begin-module main)
   (input aL_0)
   (output aL_1)
@@ -423,13 +423,13 @@ mod tests {
   (output aR_1)
   (output aO_0)
   (output aO_1)
-  (assert (= (+ (+ (* 1 aL_0) (* 1 aR_0)) (* -1 aO_0)) 0))
-  (assert (= (+ (* 1 aL_0) (* -1 aL_1)) 0))
+  (assert (= (+ (+ (* 1 aL_0) (* 1 aR_0)) (* {} aO_0)) 0))
+  (assert (= (+ (* 1 aL_0) (* {} aL_1)) 0))
   (assert (= (* 1 aO_1) 1))
   (assert (= (* aL_0 aR_0) aO_0))
   (assert (= (* aL_1 aR_1) aO_1))
-(end-module)\n",
-    );
+(end-module)\n", negative_one, negative_one
+    ));
     Ok(())
   }
 }

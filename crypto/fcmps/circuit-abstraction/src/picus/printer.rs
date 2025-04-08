@@ -5,7 +5,8 @@ use ciphersuite::group::ff::PrimeField;
 use crate::picus::field_utils::PrintableBigint;
 
 use super::{
-  field_utils::fmt_modulus, PicusContext, PicusExpression, PicusModule, PicusProgram, PicusStatement, PicusTerm, PicusVariable
+  field_utils::fmt_modulus, PicusContext, PicusExpression, PicusModule, PicusProgram,
+  PicusStatement, PicusTerm, PicusVariable,
 };
 
 trait DisplayWithContext {
