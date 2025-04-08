@@ -1,14 +1,13 @@
-use std::cmp::max;
 // Replace these with your actual crate imports.
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use ciphersuite::Helios;
-use ciphersuite::{group::ff::PrimeField, group::Group, Ciphersuite, Secp256k1, Selene, Ed25519};
+use ciphersuite::{group::ff::PrimeField, Ciphersuite, Secp256k1, Selene, Ed25519};
 use ec_divisors::DivisorCurve;
 
-use generalized_bulletproofs_circuit_abstraction::picus::field_utils::PrintableBigint;
+use full_chain_membership_proofs::picus::constrain_member_of_list;
 use generalized_bulletproofs_circuit_abstraction::picus::PicusProgram;
 use generalized_bulletproofs_circuit_abstraction::{
   picus::{PicusModule, PicusVariable},
@@ -87,6 +86,61 @@ where
     scalar_bytes[i] = *byte;
   }
   C::F::from_repr(scalar_repr).expect("Serialization/de-serialization failed")
+}
+
+fn generate_member_of_list_circuit<C>(list_length: usize) -> PicusInputs<C>
+where
+  C: Ciphersuite,
+{
+  assert!(list_length > 0);
+
+  // Build variables
+  let list = (0..list_length)
+    .map(|i| if i % 2 == 0 { Variable::aL(i / 2) } else { Variable::aR(i / 2) })
+    .collect::<Vec<_>>();
+  let maybe_member_var_index = list_length / 2;
+  let maybe_member_var = if list_length % 2 == 0 {
+    Variable::aL(maybe_member_var_index)
+  } else {
+    Variable::aR(maybe_member_var_index)
+  };
+  let all_vars = list.iter().cloned().chain(Some(maybe_member_var)).collect::<Vec<_>>();
+
+  // Add membership check
+  let list: Vec<LinComb<C::F>> = list.into_iter().map(|var| var.into()).collect::<Vec<_>>();
+  let num_predefined_vars = (all_vars.len() + 1) / 2;
+  let member_of_list_circuit: Circuit<C> = Circuit::<C>::empty(num_predefined_vars);
+  let member_of_list_circuit =
+    constrain_member_of_list(member_of_list_circuit, maybe_member_var.into(), list);
+
+  // Return the circuit along with input variable (the point)
+  PicusInputs {
+    assume_circuits: vec![],
+    assert_circuits: vec![member_of_list_circuit],
+    input_vars: all_vars,
+  }
+}
+
+fn generate_ec_on_curve_circuit<C, BaseCurve>() -> PicusInputs<C>
+where
+  C: Ciphersuite,
+  BaseCurve: DivisorCurve<FieldElement = C::F>,
+{
+  // Build variables
+  let pt = (Variable::aL(0), Variable::aR(0));
+  let num_predefined_vars = 1;
+
+  // Add on-curve sertions
+  let curve = CurveSpec { a: BaseCurve::a(), b: BaseCurve::b() };
+  let mut on_curve_circuit: Circuit<C> = Circuit::<C>::empty(num_predefined_vars);
+  let _ = on_curve_circuit.on_curve(&curve, pt);
+
+  // Return the circuit along with input variable (the point)
+  PicusInputs {
+    assume_circuits: vec![],
+    assert_circuits: vec![on_curve_circuit],
+    input_vars: vec![pt.0, pt.1],
+  }
 }
 
 fn generate_ec_incomplete_add_fixed_circuit<C, BaseCurve>() -> PicusInputs<C>
@@ -170,6 +224,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   fs::create_dir_all(&out_dir)?;
 
   generate_and_write_picus_program(&out_dir, "dummy", generate_dummy_circuit::<C>())?;
+  for list_length in 1..=8 {
+    generate_and_write_picus_program(
+      &out_dir,
+      &format!("member_of_list{}", list_length),
+      generate_member_of_list_circuit::<C>(list_length),
+    );
+  }
+  generate_and_write_picus_program(
+    &out_dir,
+    "ec_on_curve",
+    generate_ec_on_curve_circuit::<C, BaseCurve>(),
+  )?;
   generate_and_write_picus_program(
     &out_dir,
     "ec_incomplete_add_fixed",

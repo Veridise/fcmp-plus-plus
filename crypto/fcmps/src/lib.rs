@@ -30,6 +30,9 @@ use generalized_bulletproofs::{
   arithmetic_circuit_proof::AcError,
 };
 
+/// Circuit defs for picus
+pub mod picus;
+
 mod gadgets;
 pub(crate) use gadgets::*;
 mod circuit;
