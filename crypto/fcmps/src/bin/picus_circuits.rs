@@ -3,9 +3,11 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use ciphersuite::{group::ff::PrimeField, Ciphersuite, Secp256k1, Selene, Ed25519};
+use ciphersuite::Helios;
+use ciphersuite::{group::ff::PrimeField, group::Group, Ciphersuite, Secp256k1, Selene, Ed25519};
 use ec_divisors::DivisorCurve;
 
+use generalized_bulletproofs_circuit_abstraction::picus::field_utils::PrintableBigint;
 use generalized_bulletproofs_circuit_abstraction::picus::PicusProgram;
 use generalized_bulletproofs_circuit_abstraction::{
   picus::{PicusModule, PicusVariable},
@@ -83,10 +85,6 @@ where
   for (i, byte) in repr_bytes.iter().enumerate() {
     scalar_bytes[i] = *byte;
   }
-  println!("{:?}", repr_bytes);
-  println!("{:?}", scalar_bytes);
-  println!("{}", C::F::MODULUS);
-  println!("{}", <<C as Ciphersuite>::G as DivisorCurve>::FieldElement::MODULUS);
   C::F::from_repr(scalar_repr).expect("Serialization/de-serialization failed")
 }
 
@@ -103,7 +101,8 @@ where
 
   // Add on-curve assumptions
   let curve = CurveSpec { a: BaseCurve::a(), b: BaseCurve::b() };
-  let mut on_curve_circuit: Circuit<C> = Circuit::<C>::empty(0);
+  let num_predefined_vars = 4;
+  let mut on_curve_circuit: Circuit<C> = Circuit::<C>::empty(num_predefined_vars);
   let b = on_curve_circuit.on_curve(&curve, b);
   let c = on_curve_circuit.on_curve(&curve, c);
 
@@ -160,7 +159,8 @@ where
 /// 4. Main function which builds the circuit, converts it to a Picus module,
 ///    writes it to a hard-coded file, and also prints the module to stdout.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-  type BaseCurve = <Ed25519 as Ciphersuite>::G;
+  // type BaseCurve = <Ed25519 as Ciphersuite>::G;
+  type BaseCurve = <Helios as Ciphersuite>::G;
   type C = Selene;
 
   // Create an "out" directory inside the crate directory.

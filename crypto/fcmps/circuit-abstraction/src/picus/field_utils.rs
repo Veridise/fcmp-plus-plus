@@ -64,13 +64,14 @@ pub(crate) fn fmt_modulus(modulus_hex: &str) -> String {
 }
 
 /// Struct representing a bigint in a field
-pub(crate) struct PrintableBigint {
+pub struct PrintableBigint {
   magnitude: U512,
   is_negative: bool,
 }
 
 impl PrintableBigint {
-  pub(crate) fn from_field<F: PrimeField>(f: &F) -> Self {
+    /// Create a printable bigint from the provided field
+  pub fn from_field<F: PrimeField>(f: &F) -> Self {
     let magnitude: U512 = field_to_bigint(f);
     let neg_magnitude: U512 = field_to_bigint(&f.neg());
     // TODO: Determine if picus supports negative numbers
