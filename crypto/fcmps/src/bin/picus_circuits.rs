@@ -1,3 +1,4 @@
+use std::cmp::max;
 // Replace these with your actual crate imports.
 use std::fs::{self, File};
 use std::io::Write;
@@ -97,11 +98,11 @@ where
   let a = BaseCurve::generator();
   let a = BaseCurve::to_xy(a).expect("Generator is on curve");
   let b = (Variable::aL(0), Variable::aL(1));
-  let c = (Variable::aL(2), Variable::aL(3));
+  let c = (Variable::aR(0), Variable::aR(1));
+  let num_predefined_vars = 2;
 
   // Add on-curve assumptions
   let curve = CurveSpec { a: BaseCurve::a(), b: BaseCurve::b() };
-  let num_predefined_vars = 4;
   let mut on_curve_circuit: Circuit<C> = Circuit::<C>::empty(num_predefined_vars);
   let b = on_curve_circuit.on_curve(&curve, b);
   let c = on_curve_circuit.on_curve(&curve, c);
