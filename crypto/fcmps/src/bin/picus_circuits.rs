@@ -1,3 +1,5 @@
+use core::num;
+use std::cmp::max;
 // Replace these with your actual crate imports.
 use std::fs::{self, File};
 use std::io::Write;
@@ -14,7 +16,7 @@ use generalized_bulletproofs_circuit_abstraction::{
   Circuit, LinComb, Variable,
 };
 use ciphersuite::group::ff::Field;
-use generalized_bulletproofs_ec_gadgets::{CurveSpec, EcGadgets};
+use generalized_bulletproofs_ec_gadgets::{CurveSpec, EcGadgets, OnCurve};
 
 /// Inputs to the picus analyzer
 struct PicusInputs<C: Ciphersuite> {
@@ -143,7 +145,10 @@ where
   }
 }
 
-fn generate_ec_incomplete_add_fixed_circuit<C, BaseCurve>() -> PicusInputs<C>
+fn generate_ec_incomplete_add_fixed_circuit<C, BaseCurve>(
+  check_b_on_curve: bool,
+  check_c_on_curve: bool,
+) -> PicusInputs<C>
 where
   C: Ciphersuite,
   BaseCurve: DivisorCurve<FieldElement = C::F>,
@@ -155,14 +160,28 @@ where
   let c = (Variable::aR(0), Variable::aR(1));
   let num_predefined_vars = 2;
 
+  // used to hold assumptions when assuming curve-checks have been performed
+  let mut on_curve_circuit = Circuit::<C>::empty(num_predefined_vars);
+  // Used to create OnCurve ponts when not assuming curve checks have not been performed
+  let mut dummy_circuit = Circuit::<C>::empty(num_predefined_vars);
+
   // Add on-curve assumptions
+  let mut on_curve_pts: Vec<OnCurve> = vec![];
   let curve = CurveSpec { a: BaseCurve::a(), b: BaseCurve::b() };
-  let mut on_curve_circuit: Circuit<C> = Circuit::<C>::empty(num_predefined_vars);
-  let b = on_curve_circuit.on_curve(&curve, b);
-  let c = on_curve_circuit.on_curve(&curve, c);
+
+  for (pt, check_on_curve) in [(b, check_b_on_curve), (c, check_c_on_curve)] {
+    let on_curve_pt = if check_on_curve {
+      on_curve_circuit.on_curve(&curve, pt)
+    } else {
+      dummy_circuit.on_curve(&curve, pt)
+    };
+    on_curve_pts.push(on_curve_pt);
+  }
+  let (b, c) = (on_curve_pts[0], on_curve_pts[1]);
 
   // Constrain addition
-  let mut addition_circuit: Circuit<C> = Circuit::<C>::empty(on_curve_circuit.muls());
+  let num_predefined_vars: usize = max(on_curve_circuit.muls(), num_predefined_vars);
+  let mut addition_circuit: Circuit<C> = Circuit::<C>::empty(num_predefined_vars);
   addition_circuit.incomplete_add_fixed(a, b, c);
 
   // Return the circuit along with input variables (a is fixed, b is input, and c is output).
@@ -236,11 +255,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     "ec_on_curve",
     generate_ec_on_curve_circuit::<C, BaseCurve>(),
   )?;
-  generate_and_write_picus_program(
-    &out_dir,
-    "ec_incomplete_add_fixed",
-    generate_ec_incomplete_add_fixed_circuit::<C, BaseCurve>(),
-  )?;
+  for check_b_on_curve in [true, false] {
+    let b_suffix = if check_b_on_curve { "_check_b" } else { "" };
+    for check_c_on_curve in [true, false] {
+      let c_suffix = if check_c_on_curve { "_check_c" } else { "" };
+      generate_and_write_picus_program(
+        &out_dir,
+        &format!("ec_incomplete_add_fixed{}{}", b_suffix, c_suffix),
+        generate_ec_incomplete_add_fixed_circuit::<C, BaseCurve>(
+          check_b_on_curve,
+          check_c_on_curve,
+        ),
+      )?;
+    }
+  }
 
   Ok(())
 }
