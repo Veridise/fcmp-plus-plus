@@ -258,35 +258,47 @@ where
   Ok(())
 }
 
-/// 4. Main function which builds the circuit, converts it to a Picus module,
-///    writes it to a hard-coded file, and also prints the module to stdout.
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-  // type BaseCurve = <Ed25519 as Ciphersuite>::G;
-  type BaseCurve = <Helios as Ciphersuite>::G;
-  type C = Selene;
+/// Generate all circuits over the scalar field of C, using points on
+/// BaseCurve for ec-operations
+fn generate_all_circuits<C, BaseCurve>(out_dir: &Path) -> Result<(), String>
+where
+  C: Ciphersuite,
+  BaseCurve: DivisorCurve<FieldElement = C::F>,
+{
+  let curve_id: String = String::from_utf8(C::ID.into()).expect("Failed to parse ID");
+  generate_and_write_picus_program(
+    out_dir,
+    &format!("dummy_{}", curve_id),
+    generate_dummy_circuit::<C>(),
+  )?;
 
-  // Create an "out" directory inside the crate directory.
-  let manifest_dir = env!("CARGO_MANIFEST_DIR");
-  let out_dir = PathBuf::from(manifest_dir).join("out");
-  fs::create_dir_all(&out_dir)?;
+  generate_and_write_picus_program(
+    out_dir,
+    &format!("inverse_{}", curve_id),
+    generate_inverse_circuit::<C>(),
+  )?;
 
-  generate_and_write_picus_program(&out_dir, "dummy", generate_dummy_circuit::<C>())?;
+  generate_and_write_picus_program(
+    out_dir,
+    &format!("inequality_{}", curve_id),
+    generate_inequality_circuit::<C>(),
+  )?;
 
-  generate_and_write_picus_program(&out_dir, "inverse", generate_inverse_circuit::<C>())?;
+  generate_and_write_picus_program(
+    out_dir,
+    &format!("equality_{}", curve_id),
+    generate_equality_circuit::<C>(),
+  )?;
 
-  generate_and_write_picus_program(&out_dir, "inequality", generate_inequality_circuit::<C>())?;
-
-  generate_and_write_picus_program(&out_dir, "equality", generate_equality_circuit::<C>())?;
-
-  for list_length in 1..=8 {
+  for list_length in 2..=8 {
     generate_and_write_picus_program(
-      &out_dir,
-      &format!("member_of_list{}", list_length),
+      out_dir,
+      &format!("member_of_list{}_{}", list_length, curve_id),
       generate_member_of_list_circuit::<C>(list_length),
     )?;
   }
   generate_and_write_picus_program(
-    &out_dir,
+    out_dir,
     "ec_on_curve",
     generate_ec_on_curve_circuit::<C, BaseCurve>(),
   )?;
@@ -295,8 +307,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for check_c_on_curve in [true, false] {
       let c_suffix = if check_c_on_curve { "_check_c" } else { "" };
       generate_and_write_picus_program(
-        &out_dir,
-        &format!("ec_incomplete_add_fixed{}{}", b_suffix, c_suffix),
+        out_dir,
+        &format!("ec_incomplete_add_fixed{}{}_{}", b_suffix, c_suffix, curve_id),
         generate_ec_incomplete_add_fixed_circuit::<C, BaseCurve>(
           check_b_on_curve,
           check_c_on_curve,
@@ -304,6 +316,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       )?;
     }
   }
+  Ok(())
+}
+
+/// 4. Main function which builds the circuit, converts it to a Picus module,
+///    writes it to a hard-coded file, and also prints the module to stdout.
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+  // Create an "out" directory inside the crate directory.
+  let manifest_dir = env!("CARGO_MANIFEST_DIR");
+  let out_dir = PathBuf::from(manifest_dir).join("out");
+  fs::create_dir_all(&out_dir)?;
+
+  generate_all_circuits::<Selene, <Helios as Ciphersuite>::G>(&out_dir)?;
+  generate_all_circuits::<Helios, <Selene as Ciphersuite>::G>(&out_dir)?;
 
   Ok(())
 }
