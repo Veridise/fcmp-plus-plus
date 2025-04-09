@@ -101,7 +101,11 @@ impl<F: PrimeField> Display for PicusModule<F> {
     writeln!(f, "(begin-module {})", self.name)?;
 
     // Print declarations
-    for (var_index, var_info) in self.context.variable_info.iter().enumerate() {
+    let mut sorted_vars = self.context.variable_info.iter().enumerate().collect::<Vec<_>>();
+    sorted_vars.sort_by(|(var_index1, var_info1), (var_index2, var_info2)| {
+      (!var_info1.is_input, &var_info1.name).cmp(&(!var_info2.is_input, &var_info2.name))
+    });
+    for (var_index, var_info) in sorted_vars {
       let modifier = if var_info.is_input { "input" } else { "output" };
       writeln!(f, "  ({} {})", modifier, PicusVariable(var_index).with(&self.context))?;
     }

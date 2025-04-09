@@ -22,34 +22,20 @@ use generalized_bulletproofs_ec_gadgets::{CurveSpec, EcGadgets, OnCurve};
 struct PicusInputs<C: Ciphersuite> {
   assume_circuits: Vec<Circuit<C>>,
   assert_circuits: Vec<Circuit<C>>,
+  num_unconstrained_rows: usize,
   input_vars: Vec<Variable>,
 }
 
 impl<C: Ciphersuite> PicusInputs<C> {
   /// Converts circuit into a Picus module, marking l and r as inputs.
-  fn to_picus_module(&self, name: &str) -> Result<PicusModule<C::F>, String> {
-    let mut module = PicusModule::new(name.to_string());
-    self
-      .assume_circuits
-      .iter()
-      .map(|circuit| module.assume_constraints(circuit))
-      .collect::<Result<Vec<_>, _>>()?;
-    self
-      .assert_circuits
-      .iter()
-      .map(|circuit| module.apply_constraints(circuit))
-      .collect::<Result<Vec<_>, _>>()?;
-
-    self
-      .input_vars
-      .iter()
-      // TODO: Handle invalid unwrap
-      .map(|input_var| module.circuit_var_get_or_create_picus_var(input_var))
-      .collect::<Vec<PicusVariable>>()
-      .into_iter()
-      .for_each(|picus_var| {
-        module.mark_variable_as_input(picus_var).expect("Vars already checked")
-      });
+  fn to_picus_module(self, name: &str) -> Result<PicusModule<C::F>, String> {
+    let module = PicusModule::<C::F>::from_circuits(
+      name.to_string(),
+      self.assume_circuits,
+      self.assert_circuits,
+      self.num_unconstrained_rows,
+      self.input_vars,
+    );
     Ok(module)
   }
 }
@@ -69,25 +55,70 @@ fn generate_dummy_circuit<C: Ciphersuite>() -> PicusInputs<C> {
   circuit.inverse(Some(l.into()), None);
 
   // Return the circuit along with variables l and r.
-  PicusInputs { assume_circuits: vec![], assert_circuits: vec![circuit], input_vars: vec![l, r] }
+  PicusInputs {
+    assume_circuits: vec![],
+    assert_circuits: vec![circuit],
+    num_unconstrained_rows: 1,
+    input_vars: vec![l, r],
+  }
 }
 
-fn fe_to_scalar<C>(f: <C::G as DivisorCurve>::FieldElement) -> C::F
+fn generate_equality_circuit<C>() -> PicusInputs<C>
 where
   C: Ciphersuite,
-  <C as Ciphersuite>::G: DivisorCurve,
 {
-  // TODO: Handle big vs little endian
-  let repr = f.to_repr();
-  let repr_bytes: &[u8] = repr.as_ref();
-  let scalar = C::F::from(0);
-  let mut scalar_repr = scalar.to_repr();
-  let mut scalar_bytes: &mut [u8] = scalar_repr.as_mut();
-  assert_eq!(repr_bytes.len(), scalar_bytes.len());
-  for (i, byte) in repr_bytes.iter().enumerate() {
-    scalar_bytes[i] = *byte;
+  // Constrain equality
+  let mut equality_circuit: Circuit<C> = Circuit::<C>::empty(1);
+  let l0 = Variable::aL(0);
+  let r0 = Variable::aR(0);
+
+  equality_circuit.equality(l0.into(), &r0.into());
+
+  // Only input is left lincomb
+  PicusInputs {
+    assume_circuits: vec![],
+    assert_circuits: vec![equality_circuit],
+    num_unconstrained_rows: 1,
+    input_vars: vec![l0],
   }
-  C::F::from_repr(scalar_repr).expect("Serialization/de-serialization failed")
+}
+
+fn generate_inequality_circuit<C>() -> PicusInputs<C>
+where
+  C: Ciphersuite,
+{
+  let mut inequality_circuit: Circuit<C> = Circuit::<C>::empty(1);
+  let l0 = Variable::aL(0);
+  let r0 = Variable::aR(0);
+
+  inequality_circuit.inequality(l0.into(), &r0.into(), None);
+
+  // Return inequality, ensuring all other variables
+  PicusInputs {
+    assume_circuits: vec![],
+    assert_circuits: vec![inequality_circuit],
+    num_unconstrained_rows: 1,
+    input_vars: vec![Variable::aL(0), Variable::aR(0)],
+  }
+}
+
+fn generate_inverse_circuit<C>() -> PicusInputs<C>
+where
+  C: Ciphersuite,
+{
+  // Constrain equality
+  let mut inverse_circuit: Circuit<C> = Circuit::<C>::empty(1);
+  let l0 = Variable::aL(0);
+
+  let inv_l0 = inverse_circuit.inverse(Some(l0.into()), None);
+
+  // Input is the inverting variable
+  PicusInputs {
+    assume_circuits: vec![],
+    assert_circuits: vec![inverse_circuit],
+    num_unconstrained_rows: 1,
+    input_vars: vec![l0],
+  }
 }
 
 fn generate_member_of_list_circuit<C>(list_length: usize) -> PicusInputs<C>
@@ -119,6 +150,7 @@ where
   PicusInputs {
     assume_circuits: vec![],
     assert_circuits: vec![member_of_list_circuit],
+    num_unconstrained_rows: num_predefined_vars,
     input_vars: all_vars,
   }
 }
@@ -141,6 +173,7 @@ where
   PicusInputs {
     assume_circuits: vec![],
     assert_circuits: vec![on_curve_circuit],
+    num_unconstrained_rows: 1,
     input_vars: vec![pt.0, pt.1],
   }
 }
@@ -188,6 +221,7 @@ where
   PicusInputs {
     assume_circuits: vec![on_curve_circuit],
     assert_circuits: vec![addition_circuit],
+    num_unconstrained_rows: 2,
     input_vars: vec![b.x(), b.y()],
   }
 }
@@ -199,7 +233,7 @@ fn write_to_file<P: AsRef<Path>>(content: &str, path: P) -> std::io::Result<()> 
   Ok(())
 }
 
-/// Generate a picus program, write it to a file, and print it to the console
+/// Generate a picus program, write it to a file
 fn generate_and_write_picus_program<C>(
   out_dir: &Path,
   circuit_name: &str,
@@ -208,24 +242,23 @@ fn generate_and_write_picus_program<C>(
 where
   C: Ciphersuite,
 {
+  println!("Generating {}...", circuit_name);
   // Build the picus program
   let module: PicusModule<C::F> = picus_inputs.to_picus_module(circuit_name)?;
   let program: PicusProgram<C::F> = PicusProgram::new(vec![module]);
 
-  // Write and print the picus program
+  // Write the picus program
   let picus_program_str = program.to_string();
   let picus_file_path = out_dir.join(format!("{}.picus", circuit_name));
   write_to_file(&picus_program_str, picus_file_path.clone())
     .expect(&format!("Failed to write to {:?}", picus_file_path));
-  println!("Program:\n{}", picus_program_str);
 
-  // Write and print the picus program as circom
+  // Write the picus program as circom
   let main_module_index = 0;
   let circom_program_str = program.to_circom(main_module_index)?;
   let circom_file_path = out_dir.join(format!("{}.circom", circuit_name));
   write_to_file(&circom_program_str, circom_file_path.clone())
     .expect(&format!("Failed to write to {:?}", circom_file_path));
-  println!("Program:\n{}", circom_program_str);
 
   Ok(())
 }
@@ -243,6 +276,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   fs::create_dir_all(&out_dir)?;
 
   generate_and_write_picus_program(&out_dir, "dummy", generate_dummy_circuit::<C>())?;
+
+  generate_and_write_picus_program(&out_dir, "inverse", generate_inverse_circuit::<C>())?;
+
+  generate_and_write_picus_program(&out_dir, "inequality", generate_inequality_circuit::<C>())?;
+
+  generate_and_write_picus_program(&out_dir, "equality", generate_equality_circuit::<C>())?;
+
   for list_length in 1..=8 {
     generate_and_write_picus_program(
       &out_dir,

@@ -1,3 +1,4 @@
+use core::cmp::max;
 use core::ops::{Add, Mul, Sub};
 use std::collections::{HashMap, HashSet};
 
@@ -186,26 +187,46 @@ impl<F: PrimeField> PicusModule<F> {
     self.statements.push(statement);
   }
 
-  /// Assert the circuit constraints inside this module, creating Picus aL_*, aR_*, and aO_*
-  /// variables as necessary
+  /// Create a Picus module from several circuits
   ///
-  /// This will fail if the circuit module has committed constraints
-  pub fn apply_constraints<C>(&mut self, circuit: &Circuit<C>) -> Result<(), String>
-  where
-    C: Ciphersuite<F = F>,
-  {
-    self.build_statements_from_circuit(circuit, false)
-  }
+  /// The aL_i * aR_i == aO_i constraint is **removed** for the first num_unconstrained_rows-many
+  /// rows. From these first num_unconstrained_rows, only referenced variables (i.e. in the input_vars
+  /// or in the assumes/asserts) will be created
+  pub fn from_circuits<C: Ciphersuite<F = F>>(
+    name: String,
+    assumes: Vec<Circuit<C>>,
+    asserts: Vec<Circuit<C>>,
+    num_unconstrained_rows: usize,
+    input_vars: Vec<Variable>,
+  ) -> Self {
+    let mut module = PicusModule::<C::F>::new(name);
 
-  /// Assume the circuit constraints inside this module, creating Picus aL_*, aR_*, and aO_*
-  /// variables as necessary
-  ///
-  /// This will fail if the circuit module has committed constraints
-  pub fn assume_constraints<C>(&mut self, circuit: &Circuit<C>) -> Result<(), String>
-  where
-    C: Ciphersuite<F = F>,
-  {
-    self.build_statements_from_circuit(circuit, true)
+    let max_n_rows =
+      assumes.iter().chain(asserts.iter()).map(|circuit| circuit.muls()).reduce(max).unwrap_or(0);
+    assert!(max_n_rows >= num_unconstrained_rows, "More input rows than rows!");
+
+    // Make picus variables for all the input variables
+    for input_var in input_vars {
+      let picus_var = module.circuit_var_get_or_create_picus_var(&input_var);
+      module.mark_variable_as_input(picus_var);
+    }
+
+    // Make picus variables for all the non-input rows (we'll need these for the quadratic constraints)
+    for variable_type in vec![Variable::aL, Variable::aR, Variable::aO] {
+      for i in num_unconstrained_rows..max_n_rows {
+        let circuit_var: Variable = variable_type(i);
+        module.circuit_var_get_or_create_picus_var(&circuit_var);
+      }
+    }
+
+    for assume in assumes {
+      module.build_statements_from_circuit(&assume, num_unconstrained_rows, true);
+    }
+    for assertion in asserts {
+      module.build_statements_from_circuit(&assertion, num_unconstrained_rows, false);
+    }
+
+    module
   }
 
   /// Convert Circuit constraints into Picus
@@ -214,14 +235,20 @@ impl<F: PrimeField> PicusModule<F> {
   ///
   /// Uses the names aL_*, aR_*, aO_* for the corresponding circuit variables, creating
   /// them if necessary
-  pub fn build_statements_from_circuit<C>(
+  fn build_statements_from_circuit<C>(
     &mut self,
     circuit: &Circuit<C>,
+    num_input_rows: usize,
     assume: bool,
   ) -> Result<(), String>
   where
     C: Ciphersuite<F = F>,
   {
+    // ensure number of input rows is sensible
+    if num_input_rows > circuit.muls() {
+      return Err(format!("Too many input rows: '{}' > '{}'", num_input_rows, circuit.muls()));
+    }
+
     // Ensure we can support the lincombs
     let some_wv = circuit.constraints.iter().any(|constraint| !constraint.WV().is_empty());
     if some_wv {
@@ -232,45 +259,39 @@ impl<F: PrimeField> PicusModule<F> {
       return Err("Constraint has wcg != 0".to_string());
     }
 
-    // Make sure we have enough variables
-    for variable_type in vec![Variable::aL, Variable::aR, Variable::aO] {
-      for i in 0..circuit.muls() {
-        let circuit_var: Variable = variable_type(i);
-        self.circuit_var_get_or_create_picus_var(&circuit_var);
-      }
-    }
-
     let statement_constructor =
       if assume { PicusStatement::Assume } else { PicusStatement::Assert };
 
     // Apply linear constraints
+    //
+    // Use get-or-create since we may reference variables from input rows, which have not been
+    // created in the above loop.
+    // This strategy ensures we only include input variables which are referenced in the constraint,
+    // or which later are explicitly declared as inputs via the "mark_variable_as_input" method.
+    //
+    // This is a bit of a hack so that we can easily create circuits that have e.g. 1 or 2 inputs.
+    // Otherwise, we create aL0, aR0, and aO0, only use aL0/aR0, and leave the accidentally created
+    // aO0 as an under-constrained value
     for constraint in &circuit.constraints {
       let mut var_to_coefficient: HashMap<_, _> =
         HashMap::<PicusVariable, PicusExpression<F>>::new();
-      for (index, coefficient) in constraint.WL() {
-        let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
-        let picus_variable = self.circuit_var_to_picus_var(&Variable::aL(*index)).unwrap();
-        let _ = *var_to_coefficient
-          .entry(picus_variable)
-          .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
-          .or_insert(coefficient);
+      // compute coefficient for each variable
+      let ws_and_vars: [(_, fn(usize) -> Variable); 3] = [
+        (constraint.WL(), Variable::aL),
+        (constraint.WR(), Variable::aR),
+        (constraint.WO(), Variable::aO),
+      ];
+      for (w, var_cnstr) in ws_and_vars {
+        for (index, coefficient) in w {
+          let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
+          let picus_variable = self.circuit_var_get_or_create_picus_var(&var_cnstr(*index));
+          let _ = *var_to_coefficient
+            .entry(picus_variable)
+            .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
+            .or_insert(coefficient);
+        }
       }
-      for (index, coefficient) in constraint.WR() {
-        let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
-        let picus_variable = self.circuit_var_to_picus_var(&Variable::aR(*index)).unwrap();
-        let _ = *var_to_coefficient
-          .entry(picus_variable)
-          .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
-          .or_insert(coefficient);
-      }
-      for (index, coefficient) in constraint.WO() {
-        let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
-        let picus_variable = self.circuit_var_to_picus_var(&Variable::aO(*index)).unwrap();
-        let _ = *var_to_coefficient
-          .entry(picus_variable)
-          .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
-          .or_insert(coefficient);
-      }
+      // Scale the variables by their coefficients
       let terms = (0..self.num_variables())
         .filter_map(|picus_index| {
           var_to_coefficient
@@ -279,17 +300,19 @@ impl<F: PrimeField> PicusModule<F> {
         })
         .map(|(variable, coefficient)| coefficient * variable.into())
         .collect::<Vec<PicusExpression<C::F>>>();
+      // Add the variables together
       let maybe_sum = terms.into_iter().reduce(|cumulative_sum, expr| cumulative_sum + expr);
       let sum = match maybe_sum {
         Some(sum) => sum,
         None => continue,
       };
 
+      // Constraint sum(coeff * scalar) + c == 0
       let negative_c: PicusExpression<F> = PicusTerm::Constant(constraint.c().neg()).into();
       self.statements.push(statement_constructor(sum.equals(negative_c)));
     }
     // Apply quadratic constraints
-    for i in 0..circuit.muls() {
+    for i in num_input_rows..circuit.muls() {
       let aL: PicusExpression<F> = self.circuit_var_to_picus_var(&Variable::aL(i)).unwrap().into();
       let aR: PicusExpression<F> = self.circuit_var_to_picus_var(&Variable::aR(i)).unwrap().into();
       let aO: PicusExpression<F> = self.circuit_var_to_picus_var(&Variable::aO(i)).unwrap().into();
@@ -339,7 +362,7 @@ impl<F: PrimeField> PicusProgram<F> {
 mod tests {
 
   use ciphersuite::{Ciphersuite, Secp256k1};
-  use generalized_bulletproofs::arithmetic_circuit_proof::LinComb;
+  use generalized_bulletproofs::arithmetic_circuit_proof::{LinComb, Variable};
 
   use crate::{
     picus::{field_utils::PrintableBigint, PicusModule, PicusProgram},
@@ -371,15 +394,13 @@ mod tests {
 
   #[test]
   fn test_circuit_to_picus() -> Result<(), String> {
-    let mut circuit: Circuit<C> = Circuit::<C> { constraints: vec![], muls: 0, prover: None };
-    let (l, r, o) = circuit.mul(None, None, None);
+    let mut circuit: Circuit<C> = Circuit::<C> { constraints: vec![], muls: 2, prover: None };
+    let (l, r, o) = (Variable::aL(0), Variable::aR(0), Variable::aO(1));
     let lincomb = LinComb::empty().term(F::ONE, l).term(F::ONE, r).term(F::ONE.negate(), o);
     circuit.constrain_equal_to_zero(lincomb);
 
-    let mut module: PicusModule<F> = PicusModule::new("main".to_string());
-    module.apply_constraints(&circuit);
-    module.mark_variable_as_input(module.circuit_var_to_picus_var(&l).unwrap());
-    module.mark_variable_as_input(module.circuit_var_to_picus_var(&r).unwrap());
+    let module: PicusModule<F> =
+      PicusModule::<F>::from_circuits("main".to_string(), vec![], vec![circuit], 1, vec![l, r]);
 
     let negative_one = PrintableBigint::from_field(&-F::ONE).to_string();
     let program = PicusProgram::new(vec![module]);
@@ -390,9 +411,11 @@ mod tests {
 (begin-module main)
   (input aL_0)
   (input aR_0)
-  (output aO_0)
-  (assert (= (+ (+ (* 1 aL_0) (* 1 aR_0)) (* {} aO_0)) 0))
-  (assert (= (* aL_0 aR_0) aO_0))
+  (output aL_1)
+  (output aO_1)
+  (output aR_1)
+  (assert (= (+ (+ (* 1 aL_0) (* 1 aR_0)) (* {} aO_1)) 0))
+  (assert (= (* aL_1 aR_1) aO_1))
 (end-module)\n", negative_one
     ));
     Ok(())
@@ -400,16 +423,14 @@ mod tests {
 
   #[test]
   fn test_circuit_to_picus_inverse() -> Result<(), String> {
-    let mut circuit: Circuit<C> = Circuit::<C> { constraints: vec![], muls: 0, prover: None };
-    let (l, r, o) = circuit.mul(None, None, None);
+    let mut circuit: Circuit<C> = Circuit::<C> { constraints: vec![], muls: 1, prover: None };
+    let (l, r, o) = (Variable::aL(0), Variable::aR(0), Variable::aO(0));
     let lincomb = LinComb::empty().term(F::ONE, l).term(F::ONE, r).term(F::ONE.negate(), o);
     circuit.constrain_equal_to_zero(lincomb);
     circuit.inverse(Some(l.into()), None);
 
-    let mut module: PicusModule<F> = PicusModule::new("main".to_string());
-    module.apply_constraints(&circuit);
-    module.mark_variable_as_input(module.circuit_var_to_picus_var(&l).unwrap());
-    module.mark_variable_as_input(module.circuit_var_to_picus_var(&r).unwrap());
+    let module: PicusModule<F> =
+      PicusModule::<F>::from_circuits("main".to_string(), vec![], vec![circuit], 1, vec![l, r]);
 
     let program = PicusProgram::new(vec![module]);
     let negative_one = PrintableBigint::from_field(&-F::ONE).to_string();
@@ -419,15 +440,14 @@ mod tests {
       format!("(prime-number 115792089237316195423570985008687907852837564279074904382605163141518161494337)
 (begin-module main)
   (input aL_0)
-  (output aL_1)
   (input aR_0)
-  (output aR_1)
+  (output aL_1)
   (output aO_0)
   (output aO_1)
+  (output aR_1)
   (assert (= (+ (+ (* 1 aL_0) (* 1 aR_0)) (* {} aO_0)) 0))
   (assert (= (+ (* 1 aL_0) (* {} aL_1)) 0))
   (assert (= (* 1 aO_1) 1))
-  (assert (= (* aL_0 aR_0) aO_0))
   (assert (= (* aL_1 aR_1) aO_1))
 (end-module)\n", negative_one, negative_one
     ));

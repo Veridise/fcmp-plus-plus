@@ -273,7 +273,7 @@ impl<F: PrimeField> PicusProgram<F> {
 mod tests {
 
   use ciphersuite::{Ciphersuite, Secp256k1};
-  use generalized_bulletproofs::arithmetic_circuit_proof::LinComb;
+  use generalized_bulletproofs::arithmetic_circuit_proof::{LinComb, Variable};
 
   use crate::{
     picus::{field_utils::PrintableBigint, PicusModule, PicusProgram},
@@ -286,15 +286,13 @@ mod tests {
 
   #[test]
   fn test_circom_module_printing() -> Result<(), String> {
-    let mut circuit: Circuit<C> = Circuit::<C> { constraints: vec![], muls: 0, prover: None };
-    let (l, r, o) = circuit.mul(None, None, None);
+    let mut circuit: Circuit<C> = Circuit::<C> { constraints: vec![], muls: 2, prover: None };
+    let (l, r, o) = (Variable::aL(0), Variable::aR(0), Variable::aO(1));
     let lincomb = LinComb::empty().term(F::ONE, l).term(F::ONE, r).term(F::ONE.negate(), o);
     circuit.constrain_equal_to_zero(lincomb);
 
-    let mut module: PicusModule<F> = PicusModule::new("main".to_string());
-    module.apply_constraints(&circuit);
-    module.mark_variable_as_input(module.circuit_var_to_picus_var(&l).unwrap());
-    module.mark_variable_as_input(module.circuit_var_to_picus_var(&r).unwrap());
+    let module: PicusModule<F> =
+      PicusModule::<F>::from_circuits("main".to_string(), vec![], vec![circuit], 1, vec![l, r]);
 
     let negative_one = PrintableBigint::from_field(&-F::ONE).to_string();
     assert_eq!(
@@ -304,12 +302,16 @@ mod tests {
   // Declarations
   signal input aL_0;
   signal input aR_0;
-  signal output aO_0;
-  aO_0 <-- 0; // dummy assignment
+  signal output aL_1;
+  aL_1 <-- 0; // dummy assignment
+  signal output aR_1;
+  aR_1 <-- 0; // dummy assignment
+  signal output aO_1;
+  aO_1 <-- 0; // dummy assignment
 
   // Constraints
-  (1) * (aL_0) + (1) * (aR_0) + ({}) * (aO_0) === 0;
-  (aL_0) * (aR_0) === aO_0;
+  (1) * (aL_0) + (1) * (aR_0) + ({}) * (aO_1) === 0;
+  (aL_1) * (aR_1) === aO_1;
 }}",
         negative_one
       )
