@@ -229,33 +229,48 @@ fn write_to_file<P: AsRef<Path>>(content: &str, path: P) -> std::io::Result<()> 
 }
 
 /// Generate a picus program, write it to a file
-fn generate_and_write_picus_program<C>(
+///
+/// Returns the picus module
+fn generate_and_write_picus_module<C>(
   out_dir: &Path,
   circuit_name: &str,
   picus_inputs: PicusInputs<C>,
-) -> Result<(), String>
+) -> Result<PicusModule<C::F>, String>
 where
   C: Ciphersuite,
 {
   println!("Generating {}...", circuit_name);
   // Build the picus program
   let module: PicusModule<C::F> = picus_inputs.to_picus_module(circuit_name)?;
-  let program: PicusProgram<C::F> = PicusProgram::new(vec![module]);
+  let modules = write_picus_modules::<C>(out_dir, circuit_name, vec![module])?;
+  // Use into_iter().next().unwrap() instead of [0] to avoid a reference
+  let module = modules.into_iter().next().unwrap();
 
-  // Write the picus program
+  Ok(module)
+}
+
+/// Convert picus modules into a program and write as picus and circom files
+fn write_picus_modules<C>(
+  out_dir: &Path,
+  circuit_name: &str,
+  modules: Vec<PicusModule<<C as Ciphersuite>::F>>,
+) -> Result<Vec<PicusModule<<C as Ciphersuite>::F>>, String>
+where
+  C: Ciphersuite,
+{
+  let program: PicusProgram<C::F> = PicusProgram::new(modules);
   let picus_program_str = program.to_string();
   let picus_file_path = out_dir.join(format!("{}.picus", circuit_name));
   write_to_file(&picus_program_str, picus_file_path.clone())
     .expect(&format!("Failed to write to {:?}", picus_file_path));
 
-  // Write the picus program as circom
   let main_module_index = 0;
   let circom_program_str = program.to_circom(main_module_index)?;
   let circom_file_path = out_dir.join(format!("{}.circom", circuit_name));
   write_to_file(&circom_program_str, circom_file_path.clone())
     .expect(&format!("Failed to write to {:?}", circom_file_path));
 
-  Ok(())
+  Ok(program.modules())
 }
 
 /// Generate all circuits over the scalar field of C, using points on
@@ -266,56 +281,73 @@ where
   BaseCurve: DivisorCurve<FieldElement = C::F>,
 {
   let curve_id: String = String::from_utf8(C::ID.into()).expect("Failed to parse ID");
-  generate_and_write_picus_program(
+  let dummy_picus_module = generate_and_write_picus_module(
     out_dir,
     &format!("dummy_{}", curve_id),
     generate_dummy_circuit::<C>(),
   )?;
 
-  generate_and_write_picus_program(
+  let inverse_picus_module = generate_and_write_picus_module(
     out_dir,
     &format!("inverse_{}", curve_id),
     generate_inverse_circuit::<C>(),
   )?;
 
-  generate_and_write_picus_program(
+  let inequality_picus_module = generate_and_write_picus_module(
     out_dir,
     &format!("inequality_{}", curve_id),
     generate_inequality_circuit::<C>(),
   )?;
 
-  generate_and_write_picus_program(
+  let equality_picus_module = generate_and_write_picus_module(
     out_dir,
     &format!("equality_{}", curve_id),
     generate_equality_circuit::<C>(),
   )?;
 
-  for list_length in 2..=8 {
-    generate_and_write_picus_program(
-      out_dir,
-      &format!("member_of_list{}_{}", list_length, curve_id),
-      generate_member_of_list_circuit::<C>(list_length),
-    )?;
-  }
-  generate_and_write_picus_program(
+  let list_picus_modules = (2..=8)
+    .into_iter()
+    .map(|list_length| {
+      generate_and_write_picus_module(
+        out_dir,
+        &format!("member_of_list{}_{}", list_length, curve_id),
+        generate_member_of_list_circuit::<C>(list_length),
+      )
+    })
+    .collect::<Result<Vec<PicusModule<C::F>>, _>>()?;
+
+  let ec_on_curve_picus_module = generate_and_write_picus_module(
     out_dir,
     "ec_on_curve",
     generate_ec_on_curve_circuit::<C, BaseCurve>(),
   )?;
+
+  let mut ec_addition_circuits = vec![];
   for check_b_on_curve in [true, false] {
     let b_suffix = if check_b_on_curve { "_check_b" } else { "" };
     for check_c_on_curve in [true, false] {
       let c_suffix = if check_c_on_curve { "_check_c" } else { "" };
-      generate_and_write_picus_program(
+      ec_addition_circuits.push(generate_and_write_picus_module(
         out_dir,
         &format!("ec_incomplete_add_fixed{}{}_{}", b_suffix, c_suffix, curve_id),
         generate_ec_incomplete_add_fixed_circuit::<C, BaseCurve>(
           check_b_on_curve,
           check_c_on_curve,
         ),
-      )?;
+      )?);
     }
   }
+
+  let all_circuits =
+    [dummy_picus_module, inverse_picus_module, inequality_picus_module, equality_picus_module]
+      .into_iter()
+      .chain(list_picus_modules.into_iter())
+      .chain([ec_on_curve_picus_module].into_iter())
+      .chain(ec_addition_circuits.into_iter())
+      .collect::<Vec<PicusModule<C::F>>>();
+
+  write_picus_modules::<C>(out_dir, &format!("all_{}_circuits", curve_id), all_circuits);
+
   Ok(())
 }
 

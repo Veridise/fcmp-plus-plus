@@ -356,6 +356,11 @@ impl<F: PrimeField> PicusProgram<F> {
   pub fn new(modules: Vec<PicusModule<F>>) -> Self {
     PicusProgram { modules }
   }
+
+  /// Deconstruct this program into its vector of modules
+  pub fn modules(self) -> Vec<PicusModule<F>> {
+    self.modules
+  }
 }
 
 #[cfg(test)]
