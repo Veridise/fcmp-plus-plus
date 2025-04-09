@@ -198,7 +198,7 @@ impl<F: PrimeField> PicusModule<F> {
     asserts: Vec<Circuit<C>>,
     num_unconstrained_rows: usize,
     input_vars: Vec<Variable>,
-  ) -> Self {
+  ) -> Result<Self, String> {
     let mut module = PicusModule::<C::F>::new(name);
 
     let max_n_rows =
@@ -208,7 +208,7 @@ impl<F: PrimeField> PicusModule<F> {
     // Make picus variables for all the input variables
     for input_var in input_vars {
       let picus_var = module.circuit_var_get_or_create_picus_var(&input_var);
-      module.mark_variable_as_input(picus_var);
+      module.mark_variable_as_input(picus_var)?;
     }
 
     // Make picus variables for all the non-input rows (we'll need these for the quadratic constraints)
@@ -220,13 +220,13 @@ impl<F: PrimeField> PicusModule<F> {
     }
 
     for assume in assumes {
-      module.build_statements_from_circuit(&assume, num_unconstrained_rows, true);
+      module.build_statements_from_circuit(&assume, num_unconstrained_rows, true)?;
     }
     for assertion in asserts {
-      module.build_statements_from_circuit(&assertion, num_unconstrained_rows, false);
+      module.build_statements_from_circuit(&assertion, num_unconstrained_rows, false)?;
     }
 
-    module
+    Ok(module)
   }
 
   /// Convert Circuit constraints into Picus
@@ -328,8 +328,8 @@ impl<F: PrimeField> PicusModule<F> {
       Variable::aL(index) => ("aL", index),
       Variable::aR(index) => ("aR", index),
       Variable::aO(index) => ("aO", index),
-      Variable::CG { commitment, index } => ("aCG", index),
-      Variable::V(index) => ("v", index),
+      Variable::CG { commitment: _commitment, index: _index } => unimplemented!(),
+      Variable::V(_index) => unimplemented!(),
     };
     format!("{}_{}", prefix, index)
   }
@@ -400,7 +400,7 @@ mod tests {
     circuit.constrain_equal_to_zero(lincomb);
 
     let module: PicusModule<F> =
-      PicusModule::<F>::from_circuits("main".to_string(), vec![], vec![circuit], 1, vec![l, r]);
+      PicusModule::<F>::from_circuits("main".to_string(), vec![], vec![circuit], 1, vec![l, r])?;
 
     let negative_one = PrintableBigint::from_field(&-F::ONE).to_string();
     let program = PicusProgram::new(vec![module]);
@@ -430,7 +430,7 @@ mod tests {
     circuit.inverse(Some(l.into()), None);
 
     let module: PicusModule<F> =
-      PicusModule::<F>::from_circuits("main".to_string(), vec![], vec![circuit], 1, vec![l, r]);
+      PicusModule::<F>::from_circuits("main".to_string(), vec![], vec![circuit], 1, vec![l, r])?;
 
     let program = PicusProgram::new(vec![module]);
     let negative_one = PrintableBigint::from_field(&-F::ONE).to_string();

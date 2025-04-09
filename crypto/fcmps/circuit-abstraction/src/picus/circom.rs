@@ -292,7 +292,7 @@ mod tests {
     circuit.constrain_equal_to_zero(lincomb);
 
     let module: PicusModule<F> =
-      PicusModule::<F>::from_circuits("main".to_string(), vec![], vec![circuit], 1, vec![l, r]);
+      PicusModule::<F>::from_circuits("main".to_string(), vec![], vec![circuit], 1, vec![l, r])?;
 
     let negative_one = PrintableBigint::from_field(&-F::ONE).to_string();
     assert_eq!(

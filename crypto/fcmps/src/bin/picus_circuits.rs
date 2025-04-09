@@ -1,20 +1,15 @@
-use core::num;
 use std::cmp::max;
 // Replace these with your actual crate imports.
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use ciphersuite::Helios;
-use ciphersuite::{group::ff::PrimeField, Ciphersuite, Secp256k1, Selene, Ed25519};
+use ciphersuite::{Ciphersuite, Helios, Selene};
 use ec_divisors::DivisorCurve;
 
 use full_chain_membership_proofs::picus::constrain_member_of_list;
 use generalized_bulletproofs_circuit_abstraction::picus::PicusProgram;
-use generalized_bulletproofs_circuit_abstraction::{
-  picus::{PicusModule, PicusVariable},
-  Circuit, LinComb, Variable,
-};
+use generalized_bulletproofs_circuit_abstraction::{picus::PicusModule, Circuit, LinComb, Variable};
 use ciphersuite::group::ff::Field;
 use generalized_bulletproofs_ec_gadgets::{CurveSpec, EcGadgets, OnCurve};
 
@@ -35,7 +30,7 @@ impl<C: Ciphersuite> PicusInputs<C> {
       self.assert_circuits,
       self.num_unconstrained_rows,
       self.input_vars,
-    );
+    )?;
     Ok(module)
   }
 }
@@ -110,7 +105,7 @@ where
   let mut inverse_circuit: Circuit<C> = Circuit::<C>::empty(1);
   let l0 = Variable::aL(0);
 
-  let inv_l0 = inverse_circuit.inverse(Some(l0.into()), None);
+  let _inv_l0 = inverse_circuit.inverse(Some(l0.into()), None);
 
   // Input is the inverting variable
   PicusInputs {
@@ -288,7 +283,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       &out_dir,
       &format!("member_of_list{}", list_length),
       generate_member_of_list_circuit::<C>(list_length),
-    );
+    )?;
   }
   generate_and_write_picus_program(
     &out_dir,
