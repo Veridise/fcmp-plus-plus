@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 use ciphersuite::{Ciphersuite, Helios, Selene};
 use ec_divisors::DivisorCurve;
 
-use full_chain_membership_proofs::picus::constrain_member_of_list;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
+
+use full_chain_membership_proofs::picus::{constrain_member_of_list, constrain_tuple_member_of_list};
 use generalized_bulletproofs_circuit_abstraction::picus::PicusProgram;
 use generalized_bulletproofs_circuit_abstraction::{picus::PicusModule, Circuit, LinComb, Variable};
 use ciphersuite::group::ff::Field;
@@ -145,6 +148,45 @@ where
   PicusInputs {
     assume_circuits: vec![],
     assert_circuits: vec![member_of_list_circuit],
+    num_unconstrained_rows: num_predefined_vars,
+    input_vars: all_vars,
+  }
+}
+
+
+fn generate_tuple_member_of_list_circuit<C>(list_length: usize, tuple_length: usize) -> PicusInputs<C>
+where
+  C: Ciphersuite,
+{
+  assert!(list_length > 0);
+  assert!(tuple_length > 0);
+
+  // Build variables
+  let list = (0..list_length)
+    .map(|i| (0..tuple_length).map(|j| Variable::CG{commitment: i, index: j})
+      .collect::<Vec<_>>()
+    )
+    .collect::<Vec<Vec<_>>>();
+  let maybe_member_var = (0..tuple_length).map(|j| Variable::CG{commitment: list_length, index: j})
+    .collect::<Vec<_>>();
+  let all_vars = list.iter()
+    .cloned()
+    .chain(Some(maybe_member_var.clone()))
+    .flatten()
+    .collect::<Vec<_>>();
+
+  // Add membership check
+  let num_predefined_vars = 0;
+  let seed: [u8; 32] = [42; 32]; // 32-byte seed
+  let mut rng = StdRng::from_seed(seed);
+  let tuple_member_of_list_circuit: Circuit<C> = Circuit::<C>::empty(num_predefined_vars);
+  let tuple_member_of_list_circuit =
+    constrain_tuple_member_of_list::<C, _>(&mut rng, tuple_member_of_list_circuit, maybe_member_var.into(), list);
+
+  // Return the circuit along with input variable (the point)
+  PicusInputs {
+    assume_circuits: vec![],
+    assert_circuits: vec![tuple_member_of_list_circuit],
     num_unconstrained_rows: num_predefined_vars,
     input_vars: all_vars,
   }
@@ -316,6 +358,22 @@ where
     })
     .collect::<Result<Vec<PicusModule<C::F>>, _>>()?;
 
+  let tuple_list_picus_modules = (2..=8)
+    .into_iter()
+    .flat_map(|list_length| {
+      let curve_id = curve_id.clone();
+      (1..=8).into_iter()
+        .map(move |tuple_length|
+          generate_and_write_picus_module(
+            out_dir,
+            &format!("tuple_member_of_list_{}_{}_{}", list_length, tuple_length, curve_id),
+            generate_tuple_member_of_list_circuit::<C>(list_length, tuple_length),
+          )
+        )
+      }
+    )
+    .collect::<Result<Vec<PicusModule<C::F>>, _>>()?;
+
   let ec_on_curve_picus_module = generate_and_write_picus_module(
     out_dir,
     "ec_on_curve",
@@ -342,11 +400,12 @@ where
     [dummy_picus_module, inverse_picus_module, inequality_picus_module, equality_picus_module]
       .into_iter()
       .chain(list_picus_modules.into_iter())
+      .chain(tuple_list_picus_modules.into_iter())
       .chain([ec_on_curve_picus_module].into_iter())
       .chain(ec_addition_circuits.into_iter())
       .collect::<Vec<PicusModule<C::F>>>();
 
-  write_picus_modules::<C>(out_dir, &format!("all_{}_circuits", curve_id), all_circuits);
+  write_picus_modules::<C>(out_dir, &format!("all_{}_circuits", curve_id), all_circuits)?;
 
   Ok(())
 }

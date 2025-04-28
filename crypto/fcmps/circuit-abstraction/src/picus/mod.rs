@@ -254,10 +254,6 @@ impl<F: PrimeField> PicusModule<F> {
     if some_wv {
       return Err("Constraint has WV != 0".to_string());
     }
-    let some_wcg = circuit.constraints.iter().any(|constraint| !constraint.WCG().is_empty());
-    if some_wcg {
-      return Err("Constraint has wcg != 0".to_string());
-    }
 
     let statement_constructor =
       if assume { PicusStatement::Assume } else { PicusStatement::Assert };
@@ -291,6 +287,20 @@ impl<F: PrimeField> PicusModule<F> {
             .or_insert(coefficient);
         }
       }
+
+      // Now handle WCGs
+      for (outer_index, weights) in constraint.WCG().iter().enumerate() {
+        for (inner_index, coefficient) in weights {
+          let coefficient: PicusExpression<F> = PicusTerm::Constant(*coefficient).into();
+          let circuit_var = Variable::CG{commitment: outer_index, index: *inner_index};
+          let picus_variable = self.circuit_var_get_or_create_picus_var(&circuit_var);
+          let _ = *var_to_coefficient
+            .entry(picus_variable)
+            .and_modify(|old_coeff| *old_coeff = old_coeff.clone() + coefficient.clone())
+            .or_insert(coefficient);
+        }
+      }
+
       // Scale the variables by their coefficients
       let terms = (0..self.num_variables())
         .filter_map(|picus_index| {
@@ -324,14 +334,13 @@ impl<F: PrimeField> PicusModule<F> {
 
   /// Get the Picus variable name associated to the provided circuit variable
   pub fn circuit_var_to_name(var: &Variable) -> String {
-    let (prefix, index) = match var {
-      Variable::aL(index) => ("aL", index),
-      Variable::aR(index) => ("aR", index),
-      Variable::aO(index) => ("aO", index),
-      Variable::CG { commitment: _commitment, index: _index } => unimplemented!(),
+    match var {
+      Variable::aL(index) => format!("aL_{}", index),
+      Variable::aR(index) => format!("aR_{}", index),
+      Variable::aO(index) => format!("aO_{}", index),
+      Variable::CG { commitment, index} => format!("aCG_{}_{}", commitment, index),
       Variable::V(_index) => unimplemented!(),
-    };
-    format!("{}_{}", prefix, index)
+    }
   }
 
   /// Get the Picus Variable associated to the circuit variable, or None if there is none

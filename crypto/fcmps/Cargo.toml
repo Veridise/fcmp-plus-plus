@@ -30,6 +30,7 @@ ec-divisors = { path = "../divisors", features = ["ed25519"]}
 generalized-bulletproofs = { path = "../generalized-bulletproofs", default-features = false }
 generalized-bulletproofs-circuit-abstraction = { path = "./circuit-abstraction", default-features = false }
 generalized-bulletproofs-ec-gadgets = { path = "./ec-gadgets", default-features = false }
+rand = "0.8"
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }
@@ -47,21 +48,5 @@ name = "picus_circuits"
 path = "src/bin/picus_circuits.rs"
 
 [features]
-std = [
-  "std-shims/std",
-
-  "rand_core/std",
-
-  "zeroize/std",
-
-  "blake2/std",
-
-  "multiexp/std",
-  "ciphersuite/std",
-
-  "ec-divisors/std",
-  "generalized-bulletproofs/std",
-  "generalized-bulletproofs-circuit-abstraction/std",
-  "generalized-bulletproofs-ec-gadgets/std"
-]
+std = ["std-shims/std", "rand_core/std", "zeroize/std", "blake2/std", "multiexp/std", "ciphersuite/std", "ec-divisors/std", "generalized-bulletproofs/std", "generalized-bulletproofs-circuit-abstraction/std", "generalized-bulletproofs-ec-gadgets/std"]
 default = ["std"]
