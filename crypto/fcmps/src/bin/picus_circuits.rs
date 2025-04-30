@@ -4,17 +4,27 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use ciphersuite::{Ciphersuite, Helios, Selene};
+use ciphersuite::{Ed25519, group::Group, Ciphersuite, Helios, Selene};
 use ec_divisors::DivisorCurve;
 
+use full_chain_membership_proofs::FcmpParams;
+use generalized_bulletproofs::transcript::{Transcript, VerifierTranscript};
+use generic_array::GenericArray;
 use rand::rngs::StdRng;
-use rand::SeedableRng;
+use rand::{RngCore, SeedableRng};
 
 use full_chain_membership_proofs::picus::{constrain_member_of_list, constrain_tuple_member_of_list};
+use full_chain_membership_proofs::FcmpCurves;
 use generalized_bulletproofs_circuit_abstraction::picus::PicusProgram;
 use generalized_bulletproofs_circuit_abstraction::{picus::PicusModule, Circuit, LinComb, Variable};
 use ciphersuite::group::ff::Field;
-use generalized_bulletproofs_ec_gadgets::{CurveSpec, EcGadgets, OnCurve};
+use ciphersuite::group::ff::PrimeField;
+use generalized_bulletproofs_ec_gadgets::{
+  CurveSpec, DiscreteLogParameters, Divisor, EcDlogGadgets, EcGadgets, GeneratorTable, OnCurve, PointWithDlog
+};
+
+use generic_array::typenum::{Sum, Diff, Quot, U, U1, U2};
+use generic_array::typenum::Unsigned;
 
 /// Inputs to the picus analyzer
 struct PicusInputs<C: Ciphersuite> {
@@ -36,6 +46,21 @@ impl<C: Ciphersuite> PicusInputs<C> {
     )?;
     Ok(module)
   }
+}
+
+fn dummy_rng() -> StdRng {
+  let seed: [u8; 32] = [42; 32]; // 32-byte seed
+  StdRng::from_seed(seed)
+}
+
+/// Build a simple dummy transcript
+fn dummy_transript<'a>(proof: &'a [u8]) -> VerifierTranscript<'a> {
+  let mut rng = dummy_rng();
+  let mut context: [u8; 32] = [0; 32];
+  rng.fill_bytes(&mut context);
+  let context = context;
+
+  VerifierTranscript::new(context, &proof)
 }
 
 /// Generates a circuit and returns it along with the two variables (l and r)
@@ -153,8 +178,10 @@ where
   }
 }
 
-
-fn generate_tuple_member_of_list_circuit<C>(list_length: usize, tuple_length: usize) -> PicusInputs<C>
+fn generate_tuple_member_of_list_circuit<C>(
+  list_length: usize,
+  tuple_length: usize,
+) -> PicusInputs<C>
 where
   C: Ciphersuite,
 {
@@ -163,25 +190,27 @@ where
 
   // Build variables
   let list = (0..list_length)
-    .map(|i| (0..tuple_length).map(|j| Variable::CG{commitment: i, index: j})
-      .collect::<Vec<_>>()
-    )
+    .map(|i| {
+      (0..tuple_length).map(|j| Variable::CG { commitment: i, index: j }).collect::<Vec<_>>()
+    })
     .collect::<Vec<Vec<_>>>();
-  let maybe_member_var = (0..tuple_length).map(|j| Variable::CG{commitment: list_length, index: j})
+  let maybe_member_var = (0..tuple_length)
+    .map(|j| Variable::CG { commitment: list_length, index: j })
     .collect::<Vec<_>>();
-  let all_vars = list.iter()
-    .cloned()
-    .chain(Some(maybe_member_var.clone()))
-    .flatten()
-    .collect::<Vec<_>>();
+  let all_vars =
+    list.iter().cloned().chain(Some(maybe_member_var.clone())).flatten().collect::<Vec<_>>();
 
   // Add membership check
   let num_predefined_vars = 0;
-  let seed: [u8; 32] = [42; 32]; // 32-byte seed
-  let mut rng = StdRng::from_seed(seed);
+  let dummy_proof = [];
+  let transcript = dummy_transript(&dummy_proof);
   let tuple_member_of_list_circuit: Circuit<C> = Circuit::<C>::empty(num_predefined_vars);
-  let tuple_member_of_list_circuit =
-    constrain_tuple_member_of_list::<C, _>(&mut rng, tuple_member_of_list_circuit, maybe_member_var.into(), list);
+  let tuple_member_of_list_circuit = constrain_tuple_member_of_list::<C, _>(
+    transcript,
+    tuple_member_of_list_circuit,
+    maybe_member_var.into(),
+    list,
+  );
 
   // Return the circuit along with input variable (the point)
   PicusInputs {
@@ -260,6 +289,110 @@ where
     assert_circuits: vec![addition_circuit],
     num_unconstrained_rows: 2,
     input_vars: vec![b.x(), b.y()],
+  }
+}
+
+struct Ed25519Params;
+impl DiscreteLogParameters for Ed25519Params {
+  type ScalarBits = U<{ <<Ed25519 as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
+  type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
+  type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
+  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
+}
+
+struct SeleneParams;
+impl DiscreteLogParameters for SeleneParams {
+  type ScalarBits = U<{ <<Selene as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
+  type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
+  type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
+  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
+}
+
+struct HeliosParams;
+impl DiscreteLogParameters for HeliosParams {
+  type ScalarBits = U<{ <<Helios as Ciphersuite>::F as PrimeField>::NUM_BITS as usize }>;
+  type XCoefficients = Quot<Sum<Self::ScalarBits, U1>, U2>;
+  type XCoefficientsMinusOne = Diff<Self::XCoefficients, U1>;
+  type YxCoefficients = Diff<Quot<Sum<Self::ScalarBits, U1>, U2>, U2>;
+}
+
+#[derive(Clone)]
+struct MoneroCurves;
+impl FcmpCurves for MoneroCurves {
+  type OC = Ed25519;
+  type OcParameters = Ed25519Params;
+  type C1 = Selene;
+  type C1Parameters = SeleneParams;
+  type C2 = Helios;
+  type C2Parameters = HeliosParams;
+}
+
+fn generate_dlog_circuit<C, BaseCurve, Parameters>() -> PicusInputs<C>
+where
+  C: Ciphersuite,
+  BaseCurve: DivisorCurve<FieldElement = C::F>,
+  Parameters: DiscreteLogParameters,
+{
+  // Circuit for building in
+  let num_predefined_vars = 0;
+  let mut dlog_circuit: Circuit<C> = Circuit::<C>::empty(num_predefined_vars);
+
+  // Constants
+  let curve = CurveSpec { a: BaseCurve::a(), b: BaseCurve::b() };
+
+  let dummy_proof = [];
+  let mut transcript = dummy_transript(&dummy_proof);
+
+  let mut rng = dummy_rng();
+  let G = BaseCurve::random(&mut rng);
+
+  let (g_x, g_y) = BaseCurve::to_xy(G).unwrap();
+  let G_table = GeneratorTable::new(&curve, g_x, g_y);
+  let (challenge, challenged_generators) = dlog_circuit.discrete_log_challenge(
+    &mut transcript,
+    &curve,
+    &[&G_table],
+  );
+  let mut challenged_generators = challenged_generators.into_iter();
+  let challenged_G = challenged_generators.next().unwrap();
+
+  // Build variables
+  let pt = (Variable::CG { commitment: 0, index: 0 }, Variable::CG { commitment: 0, index: 1 });
+  let dlog = (0..<Parameters as DiscreteLogParameters>::ScalarBits::USIZE).map(|index| Variable::CG{commitment: 1, index})
+    .collect::<Vec<_>>()
+    .try_into()
+    .unwrap();
+  let divisor = Divisor {
+    y: Variable::CG{commitment: 2, index: 0},
+    yx: (0..<Parameters as DiscreteLogParameters>::YxCoefficients::USIZE).map(|index| Variable::CG{commitment: 3, index})
+      .collect::<Vec<_>>()
+      .try_into()
+      .unwrap(),
+    x_from_power_of_2: (0..<Parameters as DiscreteLogParameters>::XCoefficientsMinusOne::USIZE).map(|index| Variable::CG{commitment: 4, index})
+      .collect::<Vec<_>>()
+      .try_into()
+      .unwrap(),
+    zero: Variable::CG{commitment: 5, index: 0}
+  };
+  let point = PointWithDlog { point: pt, dlog, divisor };
+
+  let input_vars = vec![pt.0, pt.1].into_iter()
+    .chain(point.dlog.iter().cloned())
+    .chain(Some(point.divisor.y.clone()).into_iter())
+    .chain(point.divisor.yx.iter().cloned())
+    .chain(point.divisor.x_from_power_of_2.iter().cloned())
+    .chain(Some(point.divisor.zero.clone()).into_iter())
+    .collect::<Vec<_>>();
+
+  // Add assertions
+  let _ = dlog_circuit.discrete_log::<Parameters>(&curve, point, &challenge, &challenged_G);
+
+  // Return the circuit along with input variable (the point)
+  PicusInputs {
+    assume_circuits: vec![],
+    assert_circuits: vec![dlog_circuit],
+    num_unconstrained_rows: 0,
+    input_vars
   }
 }
 
@@ -362,17 +495,21 @@ where
     .into_iter()
     .flat_map(|list_length| {
       let curve_id = curve_id.clone();
-      (1..=8).into_iter()
-        .map(move |tuple_length|
-          generate_and_write_picus_module(
-            out_dir,
-            &format!("tuple_member_of_list_{}_{}_{}", list_length, tuple_length, curve_id),
-            generate_tuple_member_of_list_circuit::<C>(list_length, tuple_length),
-          )
+      (1..=8).into_iter().map(move |tuple_length| {
+        generate_and_write_picus_module(
+          out_dir,
+          &format!("tuple_member_of_list_{}_{}_{}", list_length, tuple_length, curve_id),
+          generate_tuple_member_of_list_circuit::<C>(list_length, tuple_length),
         )
-      }
-    )
+      })
+    })
     .collect::<Result<Vec<PicusModule<C::F>>, _>>()?;
+
+  let ec_dlog_picus_module = generate_and_write_picus_module(
+    out_dir,
+    "dlog",
+    generate_dlog_circuit::<C, BaseCurve, Ed25519Params>()
+  );
 
   let ec_on_curve_picus_module = generate_and_write_picus_module(
     out_dir,

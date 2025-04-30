@@ -23,10 +23,14 @@ where
   /// Initialization point for the hash function over the first curve.
   pub(crate) curve_2_hash_init: <C::C2 as Ciphersuite>::G,
 
-  pub(crate) G_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::OcParameters>,
-  pub(crate) T_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::OcParameters>,
-  pub(crate) U_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::OcParameters>,
-  pub(crate) V_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::OcParameters>,
+  /// G
+  pub G_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::OcParameters>,
+  /// T
+  pub T_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::OcParameters>,
+  /// U
+  pub U_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::OcParameters>,
+  /// V
+  pub V_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::OcParameters>,
   pub(crate) H_1_table: GeneratorTable<<C::C2 as Ciphersuite>::F, C::C1Parameters>,
   pub(crate) H_2_table: GeneratorTable<<C::C1 as Ciphersuite>::F, C::C2Parameters>,
 }
