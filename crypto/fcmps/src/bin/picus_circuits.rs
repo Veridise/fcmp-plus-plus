@@ -505,11 +505,11 @@ where
     })
     .collect::<Result<Vec<PicusModule<C::F>>, _>>()?;
 
-  let ec_dlog_picus_module = generate_and_write_picus_module(
-    out_dir,
-    "dlog",
-    generate_dlog_circuit::<C, BaseCurve, Ed25519Params>()
-  );
+  // let ec_dlog_picus_module = generate_and_write_picus_module(
+  //   out_dir,
+  //   "dlog",
+  //   generate_dlog_circuit::<C, BaseCurve, Ed25519Params>()
+  // );
 
   let ec_on_curve_picus_module = generate_and_write_picus_module(
     out_dir,
