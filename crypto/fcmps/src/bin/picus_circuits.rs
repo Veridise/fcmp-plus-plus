@@ -327,75 +327,6 @@ impl FcmpCurves for MoneroCurves {
   type C2Parameters = HeliosParams;
 }
 
-fn generate_dlog_circuit<C, BaseCurve, Parameters>() -> PicusInputs<C>
-where
-  C: Ciphersuite,
-  BaseCurve: DivisorCurve<FieldElement = C::F>,
-  Parameters: DiscreteLogParameters,
-{
-  // Circuit for building in
-  let num_predefined_vars = 0;
-  let mut dlog_circuit: Circuit<C> = Circuit::<C>::empty(num_predefined_vars);
-
-  // Constants
-  let curve = CurveSpec { a: BaseCurve::a(), b: BaseCurve::b() };
-
-  let dummy_proof = [];
-  let mut transcript = dummy_transript(&dummy_proof);
-
-  let mut rng = dummy_rng();
-  let G = BaseCurve::random(&mut rng);
-
-  let (g_x, g_y) = BaseCurve::to_xy(G).unwrap();
-  let G_table = GeneratorTable::new(&curve, g_x, g_y);
-  let (challenge, challenged_generators) = dlog_circuit.discrete_log_challenge(
-    &mut transcript,
-    &curve,
-    &[&G_table],
-  );
-  let mut challenged_generators = challenged_generators.into_iter();
-  let challenged_G = challenged_generators.next().unwrap();
-
-  // Build variables
-  let pt = (Variable::CG { commitment: 0, index: 0 }, Variable::CG { commitment: 0, index: 1 });
-  let dlog = (0..<Parameters as DiscreteLogParameters>::ScalarBits::USIZE).map(|index| Variable::CG{commitment: 1, index})
-    .collect::<Vec<_>>()
-    .try_into()
-    .unwrap();
-  let divisor = Divisor {
-    y: Variable::CG{commitment: 2, index: 0},
-    yx: (0..<Parameters as DiscreteLogParameters>::YxCoefficients::USIZE).map(|index| Variable::CG{commitment: 3, index})
-      .collect::<Vec<_>>()
-      .try_into()
-      .unwrap(),
-    x_from_power_of_2: (0..<Parameters as DiscreteLogParameters>::XCoefficientsMinusOne::USIZE).map(|index| Variable::CG{commitment: 4, index})
-      .collect::<Vec<_>>()
-      .try_into()
-      .unwrap(),
-    zero: Variable::CG{commitment: 5, index: 0}
-  };
-  let point = PointWithDlog { point: pt, dlog, divisor };
-
-  let input_vars = vec![pt.0, pt.1].into_iter()
-    .chain(point.dlog.iter().cloned())
-    .chain(Some(point.divisor.y.clone()).into_iter())
-    .chain(point.divisor.yx.iter().cloned())
-    .chain(point.divisor.x_from_power_of_2.iter().cloned())
-    .chain(Some(point.divisor.zero.clone()).into_iter())
-    .collect::<Vec<_>>();
-
-  // Add assertions
-  let _ = dlog_circuit.discrete_log::<Parameters>(&curve, point, &challenge, &challenged_G);
-
-  // Return the circuit along with input variable (the point)
-  PicusInputs {
-    assume_circuits: vec![],
-    assert_circuits: vec![dlog_circuit],
-    num_unconstrained_rows: 0,
-    input_vars
-  }
-}
-
 /// 3. Writes the printed Picus module to a file at the given path.
 fn write_to_file<P: AsRef<Path>>(content: &str, path: P) -> std::io::Result<()> {
   let mut file = File::create(path)?;
@@ -504,12 +435,6 @@ where
       })
     })
     .collect::<Result<Vec<PicusModule<C::F>>, _>>()?;
-
-  // let ec_dlog_picus_module = generate_and_write_picus_module(
-  //   out_dir,
-  //   "dlog",
-  //   generate_dlog_circuit::<C, BaseCurve, Ed25519Params>()
-  // );
 
   let ec_on_curve_picus_module = generate_and_write_picus_module(
     out_dir,
