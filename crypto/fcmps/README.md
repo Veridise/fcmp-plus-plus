@@ -15,3 +15,5 @@ To generate the Picus-verified circuits in the `out/` directory, run the followi
 ```bash
 cargo run picus_circuits
 ```
+
+The individual circuits are instantiated in [src/bin/picus_circuits.rs](./src/bin/picus_circuits.rs).
